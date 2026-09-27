@@ -1,0 +1,67 @@
+from langgraph.graph import StateGraph, START, END
+
+from src.graph.nodes import change_proposal_node, code_reviewer_node, human_approval_node, implementor_node, orchestrator_review_node, orchestrator_start_node, runbook_analyzer_node
+from src.graph.routing import route_after_human, route_after_orchestrator
+
+from langgraph.graph import StateGraph, START, END
+
+from src.models.workflow import workflowState
+
+from src.graph.nodes import (
+    orchestrator_start_node,
+    code_reviewer_node,
+    runbook_analyzer_node,
+    orchestrator_review_node,
+)
+
+from src.graph.routing import route_after_orchestrator
+
+
+def build_workflow():
+
+    workflow = StateGraph(workflowState)
+
+    workflow.add_node("orchestrator_start", orchestrator_start_node)
+
+    workflow.add_node("code_reviewer", code_reviewer_node)
+
+    workflow.add_node("runbook_analyzer", runbook_analyzer_node)
+
+    workflow.add_node("orchestrator_review",orchestrator_review_node)
+
+    workflow.add_node("change_proposal", change_proposal_node)
+
+    workflow.add_node("human_approval", human_approval_node)
+
+    workflow.add_node("implementor", implementor_node)
+
+    workflow.add_edge(START, "orchestrator_start")
+
+    workflow.add_edge("orchestrator_start", "code_reviewer")
+
+    workflow.add_edge("code_reviewer", "runbook_analyzer")
+
+    workflow.add_edge("runbook_analyzer", "orchestrator_review")
+
+    workflow.add_edge("change_proposal",END)
+
+    workflow.add_edge("change_proposal", "human_approval")
+
+    workflow.add_conditional_edges( "orchestrator_review",route_after_orchestrator,
+       {
+        "proceed": "change_proposal",
+        "rework": "runbook_analyzer"
+       }
+      )
+
+    workflow.add_edge( "change_proposal", "human_approval")
+
+    workflow.add_conditional_edges("human_approval", route_after_human,
+      {
+        "approved": "implementor",
+        "rejected": END
+      }
+     )
+
+    workflow.add_edge("implementor", END)
+    return workflow.compile()
