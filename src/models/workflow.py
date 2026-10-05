@@ -14,6 +14,8 @@ class workflowState(TypedDict):
 
     code_review: Optional[CodeChangeReview]
     runbook_review: Optional[runbookReview]
+    runbook_review1: Optional[runbookReview]
+    runbook_review2: Optional[runbookReview]
 
     orchestrator_decision: Optional[orchestratorDecision]
     orchestrator_feedback: str

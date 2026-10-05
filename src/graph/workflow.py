@@ -1,6 +1,6 @@
 from langgraph.graph import StateGraph, START, END
 
-from src.graph.nodes import change_proposal_node, code_reviewer_node, human_approval_node, implementor_node, orchestrator_review_node, orchestrator_start_node, runbook_analyzer_node
+from src.graph.nodes import change_proposal_node, code_reviewer_node, human_approval_node, implementor_node, orchestrator_review_node, orchestrator_start_node, runbook_analyzer1_node, runbook_analyzer2_node, runbook_decision_reviewer_node
 from src.graph.routing import route_after_human, route_after_orchestrator
 
 from langgraph.graph import StateGraph, START, END
@@ -10,7 +10,9 @@ from src.models.workflow import workflowState
 from src.graph.nodes import (
     orchestrator_start_node,
     code_reviewer_node,
-    runbook_analyzer_node,
+    runbook_analyzer1_node,
+    runbook_analyzer2_node,
+    runbook_decision_reviewer_node,
     orchestrator_review_node,
 )
 
@@ -25,7 +27,11 @@ def build_workflow():
 
     workflow.add_node("code_reviewer", code_reviewer_node)
 
-    workflow.add_node("runbook_analyzer", runbook_analyzer_node)
+    workflow.add_node("runbook_analyzer1", runbook_analyzer1_node)
+
+    workflow.add_node("runbook_analyzer2", runbook_analyzer2_node)
+
+    workflow.add_node("runbook_decision_reviewer", runbook_decision_reviewer_node)
 
     workflow.add_node("orchestrator_review",orchestrator_review_node)
 
@@ -39,18 +45,22 @@ def build_workflow():
 
     workflow.add_edge("orchestrator_start", "code_reviewer")
 
-    workflow.add_edge("code_reviewer", "runbook_analyzer")
+    workflow.add_edge("code_reviewer", "runbook_analyzer1")
 
-    workflow.add_edge("runbook_analyzer", "orchestrator_review")
+    workflow.add_edge("code_reviewer", "runbook_analyzer2")  
 
-    workflow.add_edge("change_proposal",END)
+    workflow.add_edge("runbook_analyzer1","runbook_decision_reviewer") 
+
+    workflow.add_edge("runbook_analyzer2","runbook_decision_reviewer") 
+
+    workflow.add_edge("runbook_decision_reviewer", "orchestrator_review")
 
     workflow.add_edge("change_proposal", "human_approval")
 
     workflow.add_conditional_edges( "orchestrator_review",route_after_orchestrator,
        {
         "proceed": "change_proposal",
-        "rework": "runbook_analyzer"
+        "rework": "runbook_analyzer1" #just a temp routing
        }
       )
 

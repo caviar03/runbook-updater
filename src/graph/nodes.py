@@ -1,6 +1,8 @@
 from src.agents.code_reviewer import code_reviewer
 from src.agents.implementor import implementor
-from src.agents.runbook_analyzer import runbook_analyzer
+from src.agents.runbook_analyzer1 import runbook_analyzer1
+from src.agents.runbook_analyzer2 import runbook_analyzer2
+from src.agents.runbook_decision_reviewer import runbook_decision_reviewer
 from src.agents.change_proposer import create_change_proposal
 from src.agents.orchestrator import orchestrator_review
 from src.models.workflow import workflowState
@@ -18,10 +20,19 @@ def code_reviewer_node(state: workflowState):
     review = code_reviewer(old_code=state["old_code"], current_code=state["current_code"], runbook=state["runbook"])
     return {"code_review": review}
 
-def runbook_analyzer_node(state: workflowState):
+def runbook_analyzer1_node(state: workflowState):
     feedback = state.get("orchestrator_feedback", "")
-    review = runbook_analyzer(code_review=state["code_review"],runbook=state["runbook"])
-    return { "runbook_review": review}
+    review = runbook_analyzer1(code_review=state["code_review"],runbook=state["runbook"])
+    return { "runbook_review1": review}
+
+def runbook_analyzer2_node(state: workflowState):
+    feedback = state.get("orchestrator_feedback","")
+    review = runbook_analyzer2(code_review=state["code_review"],runbook=state["runbook"])
+    return { "runbook_review2": review}
+
+def runbook_decision_reviewer_node(state: workflowState):
+    final_review = runbook_decision_reviewer(runbook=state["runbook"],code_review=state["code_review"],runbook_analysis1=state["runbook_review1"], runbook_analysis2=state["runbook_review2"],)
+    return {"runbook_review": final_review}
 
 def change_proposal_node(state: workflowState):
     proposal = create_change_proposal(runbook=state["runbook"], runbook_review=state["runbook_review"])
