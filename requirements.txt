@@ -4,3 +4,4 @@ langgraph
 pydantic
 python-docx
 python-dotenv
+docling
