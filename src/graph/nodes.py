@@ -73,9 +73,9 @@ def human_approval_node(state: workflowState):
         return {"approved_changes": None, "workflow_status": "awaiting_decision"}
     print("RUNBOOK CHANGE PROPOSAL")
     print(proposal.readable_feedback)
-    print(f"Document: {state['runbook_path']}")
+    print(f"Documents: {state.get('runbook_paths') or [state.get('runbook_path')]}")
     for i, change in enumerate(proposal.changes, 1):
-        print(f"\nCHANGE {i}\nSection: {change.section}\nCURRENT:\n{change.current_text}\nPROPOSED:\n{change.proposed_text}\nREASON:\n{change.reason}")
+        print(f"\nCHANGE {i}\nRunbook: {change.runbook}\nSection: {change.section}\nCURRENT:\n{change.current_text}\nPROPOSED:\n{change.proposed_text}\nREASON:\n{change.reason}")
     while True:
         decision = input("Approve these changes? (yes/no/edit): ").strip().lower()
         if decision == "yes":
@@ -90,6 +90,12 @@ def human_approval_node(state: workflowState):
 
 
 def implementor_node(state: workflowState):
+    if state.get("runbook_paths"):
+        updated_paths = implementor(
+            runbook_paths=state["runbook_paths"], approved_changes=state["approved_changes"],
+            output_dir=state.get("output_dir", "test_data/output"),
+        )
+        return {"updated_runbook_paths": updated_paths, "workflow_status": "applied"}
     updated_path = implementor(
         runbook_path=state["runbook_path"], approved_changes=state["approved_changes"],
         output_path=state["output_path"],

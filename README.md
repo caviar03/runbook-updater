@@ -106,10 +106,14 @@ commit. The saved PR file patches supply the complete change across normal,
 squash, and rebase merges; the old source context is reconstructed against
 the original PR head.
 
-`RUNBOOK_PATH` selects the local DOCX to update. `RUNBOOK_OUTPUT_PATH` is
-optional and defaults to a sibling `.updated.docx` file. The workflow does
-not currently index or automatically select runbooks: Qdrant must already
-contain the relevant chunks. The HTTP API instead reads the selected DOCX directly; repository
+The CLI now indexes and analyzes all `test_data/input/*.docx` runbooks before
+starting its workflow. Set `RUNBOOK_PATHS` to a JSON array to select different
+files, and `RUNBOOK_OUTPUT_DIR` for approved copies (default `test_data/output`).
+The CLI requires the full retrieval dependencies and a running Qdrant service.
+
+The HTTP API remains separate: `RUNBOOK_PATH` selects one local DOCX and the
+App supplies the merged code snapshot. It bypasses retrieval and writes approved
+copies under `.data/<analysis_id>/updated.docx`. See [API.md](API.md). Repository
 publication is not implemented yet.
 
 6. Run the Application
@@ -139,15 +143,19 @@ Ask for human approval.
 Apply the approved changes.
 Produce the updated runbook.
 
-Both analyzers receive the code review, retrieved runbook evidence, and
-rework feedback. A no-update result exits without prompting or writing.
+Both analyzers receive the code review, labelled runbook evidence, and
+rework feedback. The first checks factual accuracy; the second checks operational
+procedures. Proposals identify the target runbook and section for each change. A no-update result exits without prompting or writing.
 Both analyzers rerun on rework, with a default limit of three analysis
 attempts. The CLI's `edit` response supplies feedback for a new analysis;
 `no` performs no document write. Approval uses the configured document
 and output paths.
 
 Approved DOCX edits must each match exactly once within a paragraph or
-table-cell paragraph. The writer preserves surrounding runs and their
+table-cell paragraph, using the proposed section to distinguish repeated text.
+Multi-document changes route to the named runbook, and every document is validated
+before output copies are saved. Flattened table changes require every changed
+cell to match. The writer preserves surrounding runs and their
 formatting and refuses missing/ambiguous text or edits overlapping fields
 or images. It saves atomically after all edits succeed. Split changes to
 multiple paragraphs into separate proposal entries.

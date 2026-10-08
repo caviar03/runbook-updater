@@ -182,7 +182,7 @@ class Service:
         if status == "awaiting_decision":
             proposal = changeProposal.model_validate(state["change_proposal"])
             self.pipeline.validate(job["execution"], proposal)
-            changes = [change.model_dump() for change in proposal.changes]
+            changes = [change.model_dump(exclude={"runbook"}) for change in proposal.changes]
             if any(not change[field].strip() for change in changes for field in ("section", "current_text", "proposed_text", "reason")):
                 raise ValueError("The proposal contains an empty required field")
             snapshot.update(summary=proposal.readable_feedback or "The configured runbook needs an update.",

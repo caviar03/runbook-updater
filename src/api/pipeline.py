@@ -28,7 +28,7 @@ class Pipeline:
         temporary.write_bytes(content)
         os.replace(temporary, snapshot_path)
         state = make_initial_state(code, snapshot_path, folder / "updated.docx")
-        state.update(review_only=True, runbook_text=read_runbook_text(str(snapshot_path)))
+        state.update(review_only=True, runbook_text=read_runbook_text(str(snapshot_path), runbook_name=self.settings.runbook_path.name))
         return {"state": state, "source_path": str(self.settings.runbook_path),
                 "revision_sha256": digest(content)}
 
@@ -43,11 +43,11 @@ class Pipeline:
 
     def validate(self, execution, proposal):
         self.verify_snapshot(execution)
-        prepare_document(execution["state"]["runbook_path"], proposal)
+        prepare_document(execution["state"]["runbook_path"], proposal, runbook_name=Path(execution["source_path"]).name)
 
     def apply(self, execution):
         self.verify_snapshot(execution)
         state = execution["state"]
         # Always start from the immutable source, including after an interrupted write.
         # Repeating a recovered job replaces its own output; it never edits twice.
-        return implementor(state["runbook_path"], changeProposal.model_validate(state["change_proposal"]), state["output_path"])
+        return implementor(state["runbook_path"], changeProposal.model_validate(state["change_proposal"]), state["output_path"], runbook_name=Path(execution["source_path"]).name)

@@ -1,6 +1,5 @@
 from qdrant_client import QdrantClient, models
 
-
 QDRANT_URL = "http://localhost:6333"
 COLLECTION_NAME = "runbook_chunks"
 EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
@@ -24,6 +23,25 @@ def create_collection(client):
 
 
 def index_chunks(client, chunks):
+
+    # Remove any previously indexed chunks for these runbooks so a
+    # re-indexed (possibly shorter) runbook doesn't leave stale chunks.
+    sources = sorted({chunk["source"] for chunk in chunks})
+
+    if sources:
+        client.delete(
+            collection_name=COLLECTION_NAME,
+            points_selector=models.FilterSelector(
+                filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="source",
+                            match=models.MatchAny(any=sources),
+                        )
+                    ]
+                )
+            ),
+        )
 
     client.upload_collection(
         collection_name=COLLECTION_NAME,

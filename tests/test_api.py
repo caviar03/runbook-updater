@@ -47,7 +47,7 @@ def backend(monkeypatch, tmp_path):
     monkeypatch.setattr("builtins.input", Mock(side_effect=AssertionError("API must never ask for terminal input")))
     # Both full-content analyzers and proposal generation must bypass retrieval.
     for name in ("runbook_analyzer1", "runbook_analyzer2", "change_proposer"):
-        monkeypatch.setattr(f"src.agents.{name}.retrieve_chunks", Mock(side_effect=AssertionError("Retrieval is disabled")))
+        monkeypatch.setattr(f"src.agents.{name}.retrieve_for_queries", Mock(side_effect=AssertionError("Retrieval is disabled")))
     return Service(settings), source, calls
 
 
@@ -93,7 +93,8 @@ def test_review_is_saved_without_write_and_approval_survives_restart(backend):
     output = service.settings.data_dir / snapshot["analysis_id"] / "updated.docx"
     assert not output.exists() and source.read_bytes() == before
     for analyzer in (calls.analyzer1, calls.analyzer2, calls.proposer):
-        assert analyzer.call_args.kwargs["runbook_text"] == "Wait 30 seconds"
+        assert "Wait 30 seconds" in analyzer.call_args.kwargs["runbook_text"]
+        assert f"[Runbook: {source.name}]" in analyzer.call_args.kwargs["runbook_text"]
     restarted = Service(service.settings)
     assert restarted.get_analysis(snapshot["analysis_id"]) == snapshot
     assert not restarted.run_once()  # Awaiting review never re-runs agents on restart.
@@ -402,13 +403,22 @@ def test_invalid_or_oversized_proposal_fails_before_offering_approval(backend):
     assert snapshot["status"] == "failed" and not snapshot["proposals"]
 
 
+def test_single_document_api_refuses_a_proposal_for_a_different_runbook(backend):
+    service, _, calls = backend
+    calls.proposer.return_value.changes[0].runbook = "Other Service.docx"
+    queued = service.start_analysis(request(), "different-runbook")[1]
+    service.run_once()
+    snapshot = service.get_analysis(queued["analysis_id"])
+    assert snapshot["status"] == "failed" and not snapshot["proposals"]
+
+
 @pytest.mark.parametrize("module", ["src.agents.runbook_analyzer1", "src.agents.runbook_analyzer2", "src.agents.change_proposer"])
 def test_agents_use_direct_content_without_retrieval(monkeypatch, module):
     import importlib
     from types import SimpleNamespace
     from test_workflow import code_review, proposal, review as runbook_review
     agent = importlib.import_module(module)
-    monkeypatch.setattr(agent, "retrieve_chunks", Mock(side_effect=AssertionError("No retrieval")))
+    monkeypatch.setattr(agent, "retrieve_for_queries", Mock(side_effect=AssertionError("No retrieval")))
     invoke = Mock(return_value=proposal() if module.endswith("change_proposer") else runbook_review())
     monkeypatch.setattr(agent, "llm", SimpleNamespace(with_structured_output=lambda schema: SimpleNamespace(invoke=invoke)))
     if module.endswith("change_proposer"):

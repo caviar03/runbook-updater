@@ -1,32 +1,47 @@
 from src.config import llm
 from src.models.change_proposal import changeProposal
 from src.models.runbook_review import runbookReview
-def retrieve_chunks(*args, **kwargs):
-    from src.retrieval.retriever import retrieve_chunks as retrieve
+def retrieve_for_queries(*args, **kwargs):
+    from src.retrieval.retriever import retrieve_for_queries as retrieve
     return retrieve(*args, **kwargs)
+
+
+def format_chunks(chunks):
+    from src.retrieval.retriever import format_chunks as format_content
+    return format_content(chunks)
 
 
 
 def create_change_proposal( runbook_review: runbookReview, runbook_text: str | None = None) -> changeProposal:
-    if runbook_text is not None:
-        relevant_runbook = runbook_text
-    else:
-        chunks = []
-        for issue in runbook_review.issues:
-            chunks.extend(retrieve_chunks(issue.issue, limit=3))
-        relevant_runbook = "\n\n".join(dict.fromkeys(chunk.payload["text"] for chunk in chunks))
+    queries = [
+        issue.issue
+        for issue in runbook_review.issues
+    ]
+
+    relevant_runbook = runbook_text if runbook_text is not None else format_chunks(
+        retrieve_for_queries(queries, limit=3)
+    )
 
     prompt = f"""
 You are the Change Proposal agent.
 
-Create precise proposed edits to the CURRENT runbook based
+Create precise proposed edits to the CURRENT runbooks based
 ONLY on the findings from the final Runbook Review and the
 retrieved runbook sections.
 
 For every change provide:
 
-- affected section
-- current text
+- runbook: the exact file name shown in the [Runbook: ...]
+  label of the retrieved content being changed
+- affected section: the section heading the text sits under,
+  as shown in the [Section: ...] label
+- current text: copied verbatim from a single paragraph or
+  table cell of the retrieved content
+  Table rows appear in the retrieved content flattened as
+  "<row label>, **<column>** = <cell value>. ...". For table
+  content, current text and proposed text must be ONLY the
+  <cell value> being changed, never the flattened row.
+  Make one change per paragraph or table cell.
 - proposed replacement text
 - reason for the change
 
@@ -41,9 +56,6 @@ Rules:
 6. Preserve the existing terminology and structure.
 7. If a finding cannot be supported by the retrieved
    runbook content, do not propose a change for it.
-8. Each current_text must be an exact, nonempty, contiguous
-   passage within one paragraph (including a table-cell paragraph).
-   Split edits to multiple paragraphs into separate changes.
 
 ====================
 FINAL RUNBOOK REVIEW

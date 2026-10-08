@@ -14,6 +14,9 @@ class workflowState(TypedDict, total=False):
     changed_files: list[dict]
     runbook_text: str
     review_only: bool
+    runbook_paths: list[str]
+    output_dir: str
+    updated_runbook_paths: list[str]
     runbook_path: str
     output_path: str
     code_review: Optional[CodeChangeReview]

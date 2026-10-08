@@ -4,7 +4,11 @@ The backend accepts a confirmed code merge, analyzes the App-supplied saved PR d
 one configured local DOCX, and waits for a separate document decision. Retrieval
 is bypassed: no Qdrant, embeddings, Docling, indexing, or runbook discovery is
 used by the API. Both analyzers and the proposer receive the document text,
-including table-cell paragraphs, directly.
+including table-cell paragraphs, directly. Direct content now carries runbook
+filename and section labels shared with the upstream multi-runbook agents.
+The API still selects one configured file; the CLI can index and update several.
+Legacy saved proposals without a runbook identifier remain readable and applicable;
+a new proposal that identifies a different file is rejected before review.
 
 ## Start locally
 

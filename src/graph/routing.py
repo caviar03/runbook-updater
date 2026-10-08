@@ -12,7 +12,8 @@ def route_after_orchestrator(state: workflowState):
 
 
 def route_after_proposal(state: workflowState):
-    return "review" if state["change_proposal"].changes else "no_update"
+    proposal = state.get("change_proposal")
+    return "review" if proposal and proposal.changes else "no_update"
 
 
 def route_after_human(state: workflowState):

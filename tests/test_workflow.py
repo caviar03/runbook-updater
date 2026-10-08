@@ -47,9 +47,9 @@ def setup_workflow(monkeypatch, tmp_path, update=True):
 @pytest.mark.parametrize("module", ["src.agents.runbook_analyzer1", "src.agents.runbook_analyzer2"])
 def test_analyzer_prompt_contains_code_retrieved_evidence_and_rework_feedback(monkeypatch, module):
     agent = importlib.import_module(module)
-    retrieval = Mock(return_value=[SimpleNamespace(payload={"text": "RUNBOOK EVIDENCE: timeout is 30 seconds"})])
+    retrieval = Mock(return_value=[SimpleNamespace(id="chunk", payload={"source": "worker.docx", "headings": ["Recovery"], "text": "RUNBOOK EVIDENCE: timeout is 30 seconds"})])
     invoke = Mock(return_value=review())
-    monkeypatch.setattr(agent, "retrieve_chunks", retrieval)
+    monkeypatch.setattr(agent, "retrieve_for_queries", retrieval)
     monkeypatch.setattr(agent, "llm", SimpleNamespace(with_structured_output=lambda schema: SimpleNamespace(invoke=invoke)))
     getattr(agent, module.rsplit(".", 1)[1])(code_review(), feedback="REWORK: verify timeout evidence")
     prompt = invoke.call_args.args[0]
