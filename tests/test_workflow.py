@@ -35,13 +35,15 @@ def setup_workflow(monkeypatch, tmp_path, update=True):
     judge = Mock(return_value=review(update))
     orchestrator = Mock(return_value=orchestratorDecision(proceed=True, reasoning="Supported", feedback=""))
     proposer = Mock(return_value=proposal())
+    scorer = Mock(side_effect=lambda issues: [0.9] * len(issues))
     monkeypatch.setattr(nodes, "code_reviewer", reviewer)
     monkeypatch.setattr(nodes, "runbook_analyzer1", analyzer1)
     monkeypatch.setattr(nodes, "runbook_analyzer2", analyzer2)
     monkeypatch.setattr(nodes, "runbook_decision_reviewer", judge)
     monkeypatch.setattr(nodes, "orchestrator_review", orchestrator)
     monkeypatch.setattr(nodes, "create_change_proposal", proposer)
-    return state, source, output, SimpleNamespace(reviewer=reviewer, analyzer1=analyzer1, analyzer2=analyzer2, judge=judge, orchestrator=orchestrator, proposer=proposer)
+    monkeypatch.setattr(nodes, "score_issues", scorer)
+    return state, source, output, SimpleNamespace(reviewer=reviewer, analyzer1=analyzer1, analyzer2=analyzer2, judge=judge, orchestrator=orchestrator, proposer=proposer, scorer=scorer)
 
 
 @pytest.mark.parametrize("module", ["src.agents.runbook_analyzer1", "src.agents.runbook_analyzer2"])
@@ -124,6 +126,42 @@ def test_human_edit_feedback_regenerates_instead_of_ending_as_rejected(monkeypat
     assert result["workflow_status"] == "applied" and output.exists()
     assert calls.proposer.call_count == 2
     assert calls.analyzer1.call_args_list[-1].kwargs["feedback"] == "Clarify the waiting period"
+
+
+def test_low_necessity_scores_are_recorded_without_dropping_issues(monkeypatch, tmp_path):
+    state, _, _, calls = setup_workflow(monkeypatch, tmp_path)
+    issues = [runbookIssue(section=name, issue=f"{name} outdated", evidence_from_code="60 seconds", recommended_change="Use 60 seconds", priority="high") for name in ("High", "Low")]
+    calls.judge.return_value = runbookReview(update_required=True, issues=issues)
+    calls.scorer.side_effect = lambda issues: [0.9, 0.1]
+    monkeypatch.setattr("builtins.input", lambda prompt: "no")
+    result = build_workflow().invoke(state)
+    proposed = calls.proposer.call_args.kwargs["runbook_review"]
+    assert [issue.section for issue in proposed.issues] == ["High", "Low"]
+    assert [(entry["section"], entry["score"]) for entry in result["issue_scores"]] == [("High", 0.9), ("Low", 0.1)]
+
+
+def test_scorer_failure_continues_without_scores(monkeypatch, tmp_path):
+    state, _, _, calls = setup_workflow(monkeypatch, tmp_path)
+    calls.scorer.side_effect = ImportError("No module named 'transformers'")
+    monkeypatch.setattr("builtins.input", lambda prompt: "no")
+    result = build_workflow().invoke(state)
+    assert result["workflow_status"] == "rejected"
+    assert result["issue_scores"] == []
+    assert calls.proposer.call_count == 1
+
+
+def test_score_issues_sends_evidence_premise_and_single_hypothesis(monkeypatch):
+    scorer = importlib.import_module("src.agents.necessity_scorer")
+    classify = Mock(return_value=[{"scores": [0.8]}, {"scores": [0.3]}])
+    monkeypatch.setattr(scorer, "_classifier", lambda: classify)
+    issues = [runbookIssue(section=f"S{i}", issue=f"Statement {i}", evidence_from_code=f"Evidence {i}", recommended_change="SECRET CONCLUSION", priority="high") for i in (1, 2)]
+    assert scorer.score_issues(issues) == [0.8, 0.3]
+    premises = classify.call_args.args[0]
+    assert "Runbook section: S1" in premises[0] and "Statement 1" in premises[0] and "Evidence 1" in premises[0]
+    assert "SECRET CONCLUSION" not in premises[0]
+    assert classify.call_args.kwargs["candidate_labels"] == [scorer.NECESSITY_HYPOTHESIS]
+    assert classify.call_args.kwargs["multi_label"] is True
+    assert scorer.score_issues([]) == []
 
 
 def test_cli_state_defaults_to_updated_copy_and_keeps_defined_state_keys():

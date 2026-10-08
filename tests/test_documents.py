@@ -69,6 +69,33 @@ def test_failure_in_a_later_change_does_not_partially_overwrite_source(tmp_path)
     assert source.read_bytes() == before
 
 
+def test_flattened_row_quoted_mid_row_and_duplicated_applies_each_cell_once(tmp_path):
+    source, output = tmp_path / "source.docx", tmp_path / "output.docx"
+    document = Document()
+    table = document.add_table(rows=2, cols=3)
+    for cell, text in zip(table.rows[0].cells, ["Issue", "Error Description", "Resolutions"]):
+        cell.text = text
+    for cell, text in zip(table.rows[1].cells, ["Status appears stuck", "Within the sync window (currently 600s)", "No action needed until the window elapses."]):
+        cell.text = text
+    document.save(source)
+    resolution = " Status appears stuck, **Resolutions** = No action needed until the window elapses."
+    full_row = ("Status appears stuck, **Error Description** = Within the sync window (currently 600s)." + resolution,
+                "Status appears stuck, **Error Description** = Within the sync window (currently 480s)." + resolution)
+    mid_row = ("Within the sync window (currently 600s)." + resolution, "Within the sync window (currently 480s)." + resolution)
+    implementor(str(source), proposal(full_row, mid_row), str(output))
+    row = Document(output).tables[0].rows[1].cells
+    assert [cell.text for cell in row] == ["Status appears stuck", "Within the sync window (currently 480s)", "No action needed until the window elapses."]
+
+
+def test_cell_value_quoted_with_flattening_period_matches_cell_without_it(tmp_path):
+    source, output = tmp_path / "source.docx", tmp_path / "output.docx"
+    document = Document()
+    document.add_table(rows=1, cols=1).cell(0, 0).text = "Within the sync window (currently 600s)"
+    document.save(source)
+    implementor(str(source), proposal(("Within the sync window (currently 600s).", "Within the sync window (currently 480s).")), str(output))
+    assert Document(output).tables[0].cell(0, 0).text == "Within the sync window (currently 480s)"
+
+
 def test_merged_table_cells_are_not_counted_as_duplicate_matches(tmp_path):
     source, output = tmp_path / "source.docx", tmp_path / "output.docx"
     document = Document()

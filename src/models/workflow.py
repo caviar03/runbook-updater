@@ -25,6 +25,7 @@ class workflowState(TypedDict, total=False):
     runbook_review2: Optional[runbookReview]
     orchestrator_decision: Optional[orchestratorDecision]
     orchestrator_feedback: str
+    issue_scores: list[dict]
     change_proposal: Optional[changeProposal]
     approved_changes: Optional[changeProposal]
     human_feedback: str

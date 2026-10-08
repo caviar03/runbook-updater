@@ -65,11 +65,25 @@ _TABLE_CELL_VALUE = re.compile(
 )
 
 
+# Start of the first "<row label>, **<column>** = " in a flattened row.
+_TABLE_CELL_LABEL = re.compile(r"(?:^|\.\s+)(?:[^.]*?, )?\*\*[^*]+\*\* = ")
+
+
+def _table_cell_values(text: str) -> list[str]:
+    values = _TABLE_CELL_VALUE.findall(text)
+    label = _TABLE_CELL_LABEL.search(text)
+    # The LLM sometimes starts the quote mid-row, so the first cell value
+    # has no "**<column>** = " prefix. Treat that leading text as a cell too.
+    if values and label and label.start() > 0:
+        values.insert(0, text[:label.start()])
+    return values
+
+
 def _table_cell_edits(current_text: str, proposed_text: str) -> list[tuple[str, str]]:
     # Turn a change quoted as flattened table rows back into
     # per-cell (current, proposed) edits.
-    current_values = _TABLE_CELL_VALUE.findall(current_text)
-    proposed_values = _TABLE_CELL_VALUE.findall(proposed_text)
+    current_values = _table_cell_values(current_text)
+    proposed_values = _table_cell_values(proposed_text)
 
     if not current_values or len(current_values) != len(proposed_values):
         return []
@@ -79,6 +93,16 @@ def _table_cell_edits(current_text: str, proposed_text: str) -> list[tuple[str, 
         for old, new in zip(current_values, proposed_values)
         if old.strip() != new.strip()
     ]
+
+
+def _without_cell_period(current_text: str, proposed_text: str) -> tuple[str, str] | None:
+    # Docling joins table cells with ". ", so a quoted cell value often
+    # ends with a period the cell itself does not have.
+    current = current_text.strip()
+    if not current.endswith(".") or len(current) < 2:
+        return None
+    proposed = proposed_text.strip()
+    return current[:-1], proposed[:-1] if proposed.endswith(".") else proposed
 
 
 def _iter_paragraphs_with_sections(container, inherited=()):
@@ -158,6 +182,7 @@ def prepare_document(runbook_path: str, approved_changes: changeProposal, runboo
     document = Document(runbook_path)
     paragraphs = list(_iter_paragraphs_with_sections(document))
     name = runbook_name or runbook_path
+    applied = set()
     for change in approved_changes.changes:
         if change.runbook and _resolve_runbook_path(change.runbook, [name]) is None:
             raise ValueError(f"Proposal identifies a different runbook: {change.runbook!r}")
@@ -167,9 +192,19 @@ def prepare_document(runbook_path: str, approved_changes: changeProposal, runboo
         if not any(change.current_text in paragraph.text for paragraph, _ in paragraphs):
             # Support the upstream Docling table representation while requiring
             # every changed cell to match. Never save a partially applied edit.
-            edits = _table_cell_edits(change.current_text, change.proposed_text) or edits
+            trimmed = _without_cell_period(change.current_text, change.proposed_text)
+            if trimmed and any(trimmed[0] in paragraph.text for paragraph, _ in paragraphs):
+                edits = [trimmed]
+            else:
+                edits = _table_cell_edits(change.current_text, change.proposed_text) or edits
         for current_text, proposed_text in edits:
-            matches = [(paragraph, headings) for paragraph, headings in paragraphs if current_text in paragraph.text]
+            # The proposer may quote the same table cell in two overlapping
+            # changes; apply each identical edit to a section only once.
+            key = (_normalize(change.section), current_text, proposed_text)
+            if key in applied:
+                continue
+            applied.add(key)
+            matches =[(paragraph, headings) for paragraph, headings in paragraphs if current_text in paragraph.text]
             if sum(paragraph.text.count(current_text) for paragraph, _ in matches) > 1:
                 matches = [(paragraph, headings) for paragraph, headings in matches if _in_section(change.section, headings)]
             occurrences = sum(paragraph.text.count(current_text) for paragraph, _ in matches)

@@ -21,7 +21,7 @@ def make_initial_state(code_data, runbook_path, output_path=None):
         "changed_files": code_data["changed_files"],
         **targets,
         "code_review": None, "runbook_review1": None, "runbook_review2": None,
-        "runbook_review": None, "orchestrator_decision": None, "orchestrator_feedback": "",
+        "runbook_review": None, "orchestrator_decision": None, "orchestrator_feedback": "", "issue_scores": [],
         "change_proposal": None, "approved_changes": None, "human_feedback": "",
         "updated_runbook_path": "", "analysis_attempts": 0, "max_analysis_attempts": 3,
         "workflow_status": "analyzing", "error": "",
