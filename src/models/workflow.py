@@ -9,8 +9,8 @@ from .orchestrator_decision import orchestratorDecision
 class workflowState(TypedDict):
 
     old_code: str
-    diff: str
-    runbook_path: str
+    code_diff: str
+    runbook_paths: list[str]
 
 
     code_review: Optional[CodeChangeReview]
@@ -24,6 +24,4 @@ class workflowState(TypedDict):
     change_proposal: Optional[changeProposal]
     approved_changes: Optional[changeProposal]
 
-    updated_runbook: str
-
-    analysis_attempts: int
+    updated_runbook_paths: list[str]

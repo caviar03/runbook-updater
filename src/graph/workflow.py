@@ -1,22 +1,8 @@
 from langgraph.graph import StateGraph, START, END
 
 from src.graph.nodes import change_proposal_node, code_reviewer_node, human_approval_node, implementor_node, orchestrator_review_node, orchestrator_start_node, runbook_analyzer1_node, runbook_analyzer2_node, runbook_decision_reviewer_node
-from src.graph.routing import route_after_human, route_after_orchestrator
-
-from langgraph.graph import StateGraph, START, END
-
+from src.graph.routing import route_after_human, route_after_orchestrator, route_after_proposal
 from src.models.workflow import workflowState
-
-from src.graph.nodes import (
-    orchestrator_start_node,
-    code_reviewer_node,
-    runbook_analyzer1_node,
-    runbook_analyzer2_node,
-    runbook_decision_reviewer_node,
-    orchestrator_review_node,
-)
-
-from src.graph.routing import route_after_orchestrator
 
 
 def build_workflow():
@@ -55,8 +41,6 @@ def build_workflow():
 
     workflow.add_edge("runbook_decision_reviewer", "orchestrator_review")
 
-    workflow.add_edge("change_proposal", "human_approval")
-
     workflow.add_conditional_edges( "orchestrator_review",route_after_orchestrator,
        {
         "proceed": "change_proposal",
@@ -64,7 +48,12 @@ def build_workflow():
        }
       )
 
-    workflow.add_edge( "change_proposal", "human_approval")
+    workflow.add_conditional_edges("change_proposal", route_after_proposal,
+      {
+        "has_changes": "human_approval",
+        "no_changes": END
+      }
+     )
 
     workflow.add_conditional_edges("human_approval", route_after_human,
       {

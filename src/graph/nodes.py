@@ -17,17 +17,17 @@ def orchestrator_review_node(state: workflowState):
     return { "orchestrator_decision": decision,"orchestrator_feedback": decision.feedback}
 
 def code_reviewer_node(state: workflowState):
-    review = code_reviewer(old_code=state["old_code"], current_code=state["current_code"])
+    review = code_reviewer(old_code=state["old_code"], code_diff=state["code_diff"])
     return {"code_review": review}
 
 def runbook_analyzer1_node(state: workflowState):
     feedback = state.get("orchestrator_feedback", "")
-    review = runbook_analyzer1(code_review=state["code_review"])
+    review = runbook_analyzer1(code_review=state["code_review"], feedback=feedback)
     return { "runbook_review1": review}
 
 def runbook_analyzer2_node(state: workflowState):
     feedback = state.get("orchestrator_feedback","")
-    review = runbook_analyzer2(code_review=state["code_review"])
+    review = runbook_analyzer2(code_review=state["code_review"], feedback=feedback)
     return { "runbook_review2": review}
 
 def runbook_decision_reviewer_node(state: workflowState):
@@ -50,6 +50,7 @@ def human_approval_node(state: workflowState):
 
     for i, change in enumerate(proposal.changes, 1):
         print(f"\nCHANGE {i}")
+        print(f"Runbook: {change.runbook}")
         print(f"Section: {change.section}")
         print("\nCURRENT:")
         print(change.current_text)
@@ -61,38 +62,22 @@ def human_approval_node(state: workflowState):
     print("\n" + "=" * 60)
 
     decision = input(
-        "Approve these changes? (yes/no/edit): "
+        "Approve these changes? (yes/no): "
     ).strip().lower()
 
     if decision == "yes":
-        return {
-            "approved_changes": proposal,
-            "human_feedback": "Approved"
-        }
+        return {"approved_changes": proposal}
 
-    if decision == "no":
-        return {
-            "approved_changes": None,
-            "human_feedback": "Rejected"
-        }
-
-    feedback = input("Enter your feedback: ")
-
-    return {
-        "approved_changes": None,
-        "human_feedback": feedback
-    }
+    return {"approved_changes": None}
 
 def implementor_node(state: workflowState):
 
-    output_path = "test_data/input/Kartly Order Tracking Service_System Admin Operating Manual (Runbook)_v1.0.docx"
-
-    updated_path = implementor(
-        runbook_path="test_data/input/Kartly Order Tracking Service_System Admin Operating Manual (Runbook)_v1.0.docx",
+    updated_paths = implementor(
+        runbook_paths=state["runbook_paths"],
         approved_changes=state["approved_changes"],
-        output_path=output_path,
+        output_dir="test_data/output",
     )
 
     return {
-        "updated_runbook": updated_path
+        "updated_runbook_paths": updated_paths
     }

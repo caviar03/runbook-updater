@@ -1,3 +1,5 @@
+import uuid
+
 from docling.document_converter import DocumentConverter
 from docling.chunking import HybridChunker
 
@@ -23,11 +25,13 @@ def prepare_chunks(chunks):
 
     for i, chunk in enumerate(chunks):
 
+        source = chunk.meta.origin.filename
+
         prepared_chunks.append({
-            "id": i,
+            "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{source}#{i}")),
             "text": chunk.text,
             "headings": chunk.meta.headings,
-            "source": chunk.meta.origin.filename,
+            "source": source,
         })
 
     return prepared_chunks

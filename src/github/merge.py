@@ -1,3 +1,6 @@
+from src.github.repo import get_commit, get_compare, get_file_at_commit
+
+
 def get_merge_code(
     owner: str,
     repo: str,
