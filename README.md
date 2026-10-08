@@ -106,6 +106,15 @@ commit. The saved PR file patches supply the complete change across normal,
 squash, and rebase merges; the old source context is reconstructed against
 the original PR head.
 
+Model settings are shared by the CLI and API. Change `OPENAI_MODEL` in `.env`
+(the fallback is `gpt-5-nano`). Set `OPENAI_TIMEOUT_SECONDS` for the per-request
+model timeout (default 180 seconds, with one SDK retry), then restart the backend.
+For the current local setup, `OPENAI_MODEL=gpt-6-luna` is selected. The overall
+analysis includes several model requests, so it can take longer than one timeout.
+A model timeout now reports `MODEL_TIMEOUT` and identifies the failed workflow
+step when available. In GitHub, use **Retry analysis** on the failed stage after
+correcting the model/timeout settings; a fresh proposal still requires approval.
+
 The CLI now indexes and analyzes all `test_data/input/*.docx` runbooks before
 starting its workflow. Set `RUNBOOK_PATHS` to a JSON array to select different
 files, and `RUNBOOK_OUTPUT_DIR` for approved copies (default `test_data/output`).

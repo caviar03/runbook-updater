@@ -426,3 +426,24 @@ def test_agents_use_direct_content_without_retrieval(monkeypatch, module):
     else:
         getattr(agent, module.rsplit(".", 1)[1])(code_review(), runbook_text="EXACT CONFIGURED DOCX TEXT")
     assert "EXACT CONFIGURED DOCX TEXT" in invoke.call_args.args[0]
+
+
+def test_model_timeout_exposes_the_failed_step_without_request_details(backend):
+    from httpx import Request
+    from openai import APITimeoutError
+    service, source, _ = backend
+    original = source.read_bytes()
+    error = APITimeoutError(request=Request("POST", "https://api.openai.com/v1/chat/completions",
+                                          headers={"Authorization": "Bearer private-test-secret"}))
+    error.add_note("During task with name 'change_proposal' and id 'test-task'")
+    service.pipeline.analyze = Mock(side_effect=error)
+    queued = service.start_analysis(request(), "timeout-start")[1]
+    assert service.run_once()
+    result = service.get_analysis(queued["analysis_id"])
+    assert result["status"] == "failed"
+    assert result["error"]["code"] == "MODEL_TIMEOUT"
+    assert "generating proposed runbook changes" in result["error"]["message"]
+    assert "private-test-secret" not in json.dumps(result)
+    assert result["proposals"] == [] and result["allowed_decisions"] == []
+    assert source.read_bytes() == original
+    assert not service.run_once()

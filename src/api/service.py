@@ -6,12 +6,28 @@ import re
 import threading
 import uuid
 from pathlib import Path
+from openai import APITimeoutError
 
 from src.api.pipeline import Pipeline, digest
 from src.api.store import Store, dumps
 from src.models.change_proposal import changeProposal
 
 logger = logging.getLogger(__name__)
+
+
+def pipeline_error(error):
+    """Expose a safe, actionable cause; keep raw exceptions in server logs."""
+    if isinstance(error, APITimeoutError):
+        steps = {"code_reviewer": "reviewing the merged code", "runbook_analyzer1": "analyzing the runbook",
+                 "runbook_analyzer2": "analyzing the runbook", "runbook_decision_reviewer": "checking the runbook analysis",
+                 "orchestrator_review": "reviewing the analysis", "change_proposal": "generating proposed runbook changes"}
+        step = "analyzing the change"
+        for note in getattr(error, "__notes__", []):
+            match = re.search(r"During task with name '([^']+)'", note)
+            if match and match[1] in steps:
+                step = steps[match[1]]
+        return {"code": "MODEL_TIMEOUT", "message": f"The AI request timed out while {step}. Retry analysis; if it happens again, increase the backend model timeout before retrying."}
+    return {"code": "PIPELINE_FAILED", "message": "The runbook pipeline failed. Check backend logs and retry analysis."}
 
 
 def preview_budget(snapshot):
@@ -163,13 +179,13 @@ class Service:
                     job["snapshot"].update(status="applied", summary=f"Approved changes saved to local output {job['id']}/updated.docx. GitHub publication is not configured.")
                     job["execution"]["updated_runbook_path"] = str(output)
                 job["work"] = None
-            except Exception:
+            except Exception as error:
                 logger.exception("Workflow job %s failed", job["id"])
                 if job["work"] == "analyze":
                     job["snapshot"].update(proposals=[], proposal_version=None)
                 job["work"] = None
-                job["snapshot"].update(status="failed", summary="The runbook pipeline failed. Check backend logs and retry analysis.",
-                                       allowed_decisions=[], error={"code": "PIPELINE_FAILED", "message": "The runbook pipeline failed. Check backend logs and retry analysis."})
+                failure = pipeline_error(error)
+                job["snapshot"].update(status="failed", summary=failure["message"], allowed_decisions=[], error=failure)
             with self.store.transaction() as db:
                 self.store.save(db, job)
             return True
