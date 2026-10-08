@@ -17,25 +17,25 @@ def orchestrator_review_node(state: workflowState):
     return { "orchestrator_decision": decision,"orchestrator_feedback": decision.feedback}
 
 def code_reviewer_node(state: workflowState):
-    review = code_reviewer(old_code=state["old_code"], current_code=state["current_code"], runbook=state["runbook"])
+    review = code_reviewer(old_code=state["old_code"], current_code=state["current_code"])
     return {"code_review": review}
 
 def runbook_analyzer1_node(state: workflowState):
     feedback = state.get("orchestrator_feedback", "")
-    review = runbook_analyzer1(code_review=state["code_review"],runbook=state["runbook"])
+    review = runbook_analyzer1(code_review=state["code_review"])
     return { "runbook_review1": review}
 
 def runbook_analyzer2_node(state: workflowState):
     feedback = state.get("orchestrator_feedback","")
-    review = runbook_analyzer2(code_review=state["code_review"],runbook=state["runbook"])
+    review = runbook_analyzer2(code_review=state["code_review"])
     return { "runbook_review2": review}
 
 def runbook_decision_reviewer_node(state: workflowState):
-    final_review = runbook_decision_reviewer(runbook=state["runbook"],code_review=state["code_review"],runbook_analysis1=state["runbook_review1"], runbook_analysis2=state["runbook_review2"],)
+    final_review = runbook_decision_reviewer(code_review=state["code_review"],runbook_analysis1=state["runbook_review1"], runbook_analysis2=state["runbook_review2"])
     return {"runbook_review": final_review}
 
 def change_proposal_node(state: workflowState):
-    proposal = create_change_proposal(runbook=state["runbook"], runbook_review=state["runbook_review"])
+    proposal = create_change_proposal(runbook_review=state["runbook_review"])
     return { "change_proposal": proposal }
 
 def human_approval_node(state: workflowState):
@@ -84,10 +84,15 @@ def human_approval_node(state: workflowState):
     }
 
 def implementor_node(state: workflowState):
-    updated_runbook = implementor(
-        runbook=state["runbook"],
-        approved_changes=state["approved_changes"]
+
+    output_path = "test_data/input/Kartly Order Tracking Service_System Admin Operating Manual (Runbook)_v1.0.docx"
+
+    updated_path = implementor(
+        runbook_path="test_data/input/Kartly Order Tracking Service_System Admin Operating Manual (Runbook)_v1.0.docx",
+        approved_changes=state["approved_changes"],
+        output_path=output_path,
     )
+
     return {
-        "updated_runbook": updated_runbook
+        "updated_runbook": updated_path
     }

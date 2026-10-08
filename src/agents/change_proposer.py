@@ -1,11 +1,40 @@
 from src.config import llm
 from src.models.change_proposal import changeProposal
 from src.models.runbook_review import runbookReview
+from src.retrieval.retriever import retrieve_chunks
 
 
-def create_change_proposal(runbook: str,runbook_review: runbookReview) -> changeProposal:
+def create_change_proposal( runbook_review: runbookReview) -> changeProposal:
+    queries = [
+        issue.issue
+        for issue in runbook_review.issues
+    ]
 
-    prompt = f"""You are the Change Proposal agent. Create precise proposed edits to the runbook based ONLY on the findings from the Runbook Analyzer.
+    retrieved_chunks = []
+
+    for query in queries:
+        results = retrieve_chunks(query, limit=3)
+        retrieved_chunks.extend(results)
+
+    # Remove duplicate chunks
+    unique_chunks = {}
+
+    for chunk in retrieved_chunks:
+        text = chunk.payload["text"]
+        unique_chunks[text] = chunk
+
+    relevant_runbook = "\n\n".join(
+        chunk.payload["text"]
+        for chunk in unique_chunks.values()
+    )
+
+    prompt = f"""
+You are the Change Proposal agent.
+
+Create precise proposed edits to the CURRENT runbook based
+ONLY on the findings from the final Runbook Review and the
+retrieved runbook sections.
+
 For every change provide:
 
 - affected section
@@ -13,19 +42,35 @@ For every change provide:
 - proposed replacement text
 - reason for the change
 
-Do not implement the changes.
-Do not modify unrelated content.
+Rules:
+
+1. Only propose changes identified in the Runbook Review.
+2. Use the retrieved runbook content to determine the
+   exact current text that needs to change.
+3. Do not invent information.
+4. Do not modify unrelated content.
+5. Do not implement the changes.
+6. Preserve the existing terminology and structure.
+7. If a finding cannot be supported by the retrieved
+   runbook content, do not propose a change for it.
 
 ====================
-RUNBOOK
-====================
-{runbook}
-
-====================
-RUNBOOK REVIEW
+FINAL RUNBOOK REVIEW
 ====================
 {runbook_review.model_dump_json(indent=2)}
+
+====================
+RELEVANT CURRENT RUNBOOK SECTIONS
+====================
+{relevant_runbook}
+
+====================
+PROPOSED CHANGES
+====================
+
+Create the ChangeProposal.
 """
+
     structured_llm = llm.with_structured_output(changeProposal)
-    
+
     return structured_llm.invoke(prompt)

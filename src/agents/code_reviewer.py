@@ -2,24 +2,31 @@ from src.config import llm
 from src.models.code_review import CodeChangeReview
 
 
-def code_reviewer(old_code: str, current_code: str, runbook: str) -> CodeChangeReview:
+def code_reviewer(
+    old_code: str,
+    code_diff: str
+) -> CodeChangeReview:
 
     prompt = f"""
 You are a Code Review Agent.
 
-Your job is to:
+Your job is to analyze a code change and identify meaningful
+changes that may have an operational impact or require a
+runbook update.
 
-1. Compare the old and current code.
-2. Identify meaningful code changes.
-3. Review the FULL current code for pre-existing
-   discrepancies with the runbook.
-4. Identify anything in the code that the runbook
-   does not accurately document.
-5. Identify anything the runbook claims that the
-   code does not support.
-6. Determine which findings are relevant to the runbook.
+You must:
 
-Do not invent behavior that is not supported by the code.
+1. Use the OLD CODE to understand the previous behavior.
+2. Use the GITHUB DIFF to identify exactly what changed.
+3. Identify meaningful behavioral or configuration changes.
+4. Identify existing behavior that may now differ from the
+   previous implementation.
+5. Do not invent behavior that is not supported by the
+   provided code or diff.
+6. Do not assume that every code change requires a runbook
+   update.
+7. For each change, explain its operational impact and whether
+   it is potentially relevant to the runbook.
 
 ====================
 OLD CODE
@@ -27,14 +34,15 @@ OLD CODE
 {old_code}
 
 ====================
-CURRENT CODE
+GITHUB DIFF
 ====================
-{current_code}
+{code_diff}
 
 ====================
-RUNBOOK
+CODE REVIEW
 ====================
-{runbook}
+
+Produce a CodeChangeReview.
 """
 
     structured_llm = llm.with_structured_output(CodeChangeReview)

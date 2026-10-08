@@ -1,32 +1,35 @@
-from src.config import llm
+from docx import Document
+
 from src.models.change_proposal import changeProposal
 
 
-def implementor(runbook: str, approved_changes: changeProposal) -> str:
-    prompt = f"""
-You are the Runbook Implementor.
+def implementor(
+    runbook_path: str,
+    approved_changes: changeProposal,
+    output_path: str,
+) -> str:
 
-Apply ONLY the human-approved changes to the
-current runbook.
+    document = Document(runbook_path)
 
-Rules:
-- Do not invent information.
-- Do not make additional changes.
-- Do not modify unrelated sections.
-- Preserve the existing formatting.
-- Return the complete updated runbook.
-- The approved changes are authoritative.
+    for change in approved_changes.changes:
 
-====================
-CURRENT RUNBOOK
-====================
-{runbook}
+        current_text = change.current_text
+        proposed_text = change.proposed_text
 
-====================
-HUMAN-APPROVED CHANGES
-====================
-{approved_changes.model_dump_json(indent=2)}
-"""
-    response = llm.invoke(prompt)
+        for paragraph in document.paragraphs:
 
-    return response.content
+            if current_text.strip() in paragraph.text:
+
+                for run in paragraph.runs:
+                    run.text = ""
+
+                paragraph.runs[0].text = paragraph.text.replace(
+                    current_text,
+                    proposed_text
+                )
+
+                break
+
+    document.save(output_path)
+
+    return output_path
