@@ -3,16 +3,12 @@ from docling.chunking import HybridChunker
 
 
 def parse_runbook(file_path: str):
-
     converter = DocumentConverter()
-
     result = converter.convert(file_path)
-
     return result.document
 
 
 def chunk_runbook(document):
-
     chunker = HybridChunker()
 
     chunks = list(
@@ -20,3 +16,18 @@ def chunk_runbook(document):
     )
 
     return chunks
+
+
+def prepare_chunks(chunks):
+    prepared_chunks = []
+
+    for i, chunk in enumerate(chunks):
+
+        prepared_chunks.append({
+            "id": i,
+            "text": chunk.text,
+            "headings": chunk.meta.headings,
+            "source": chunk.meta.origin.filename,
+        })
+
+    return prepared_chunks

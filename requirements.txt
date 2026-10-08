@@ -5,3 +5,5 @@ pydantic
 python-docx
 python-dotenv
 docling
+qdrant-client[fastembed]
+requests

@@ -1,10 +1,13 @@
-old_code = """
-def process_payment(amount):
-    validate_payment(amount)
-    charge_card(amount)
+old_code = get_file_at_commit(
+    owner="caviar03",
+    repo="your-repo",
+    path="src/lib/tracking.ts",
+    commit_sha="OLD_COMMIT_SHA",
+)
 
-
-def refund_payment(transaction_id):
-    find_transaction(transaction_id)
-    issue_refund(transaction_id)
-"""
+current_code = get_file_at_commit(
+    owner="caviar03",
+    repo="your-repo",
+    path="src/lib/tracking.ts",
+    commit_sha="NEW_COMMIT_SHA",
+)
