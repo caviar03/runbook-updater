@@ -1,7 +1,7 @@
 from src.config import llm
 from src.models.change_proposal import changeProposal
 from src.models.runbook_review import runbookReview
-from src.retrieval.retriever import retrieve_chunks
+from src.retrieval.retriever import format_chunks, retrieve_for_queries
 
 
 def create_change_proposal( runbook_review: runbookReview) -> changeProposal:
@@ -10,35 +10,30 @@ def create_change_proposal( runbook_review: runbookReview) -> changeProposal:
         for issue in runbook_review.issues
     ]
 
-    retrieved_chunks = []
-
-    for query in queries:
-        results = retrieve_chunks(query, limit=3)
-        retrieved_chunks.extend(results)
-
-    # Remove duplicate chunks
-    unique_chunks = {}
-
-    for chunk in retrieved_chunks:
-        text = chunk.payload["text"]
-        unique_chunks[text] = chunk
-
-    relevant_runbook = "\n\n".join(
-        chunk.payload["text"]
-        for chunk in unique_chunks.values()
+    relevant_runbook = format_chunks(
+        retrieve_for_queries(queries, limit=3)
     )
 
     prompt = f"""
 You are the Change Proposal agent.
 
-Create precise proposed edits to the CURRENT runbook based
+Create precise proposed edits to the CURRENT runbooks based
 ONLY on the findings from the final Runbook Review and the
 retrieved runbook sections.
 
 For every change provide:
 
-- affected section
-- current text
+- runbook: the exact file name shown in the [Runbook: ...]
+  label of the retrieved content being changed
+- affected section: the section heading the text sits under,
+  as shown in the [Section: ...] label
+- current text: copied verbatim from a single paragraph or
+  table cell of the retrieved content
+  Table rows appear in the retrieved content flattened as
+  "<row label>, **<column>** = <cell value>. ...". For table
+  content, current text and proposed text must be ONLY the
+  <cell value> being changed, never the flattened row.
+  Make one change per paragraph or table cell.
 - proposed replacement text
 - reason for the change
 
