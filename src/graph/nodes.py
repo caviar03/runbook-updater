@@ -1,3 +1,5 @@
+import logging
+
 from src.agents.code_reviewer import code_reviewer
 from src.agents.implementor import implementor
 from src.agents.runbook_analyzer1 import runbook_analyzer1
@@ -5,8 +7,11 @@ from src.agents.runbook_analyzer2 import runbook_analyzer2
 from src.agents.runbook_decision_reviewer import runbook_decision_reviewer
 from src.agents.change_proposer import create_change_proposal
 from src.agents.orchestrator import orchestrator_review
+from src.agents.necessity_scorer import score_issues
 from src.models.orchestrator_decision import orchestratorDecision
 from src.models.workflow import workflowState
+
+logger = logging.getLogger(__name__)
 
 
 def orchestrator_start_node(state: workflowState):
@@ -51,6 +56,19 @@ def orchestrator_review_node(state: workflowState):
     return {"orchestrator_decision": decision, "orchestrator_feedback": decision.feedback}
 
 
+def necessity_scorer_node(state: workflowState):
+    issues = state["runbook_review"].issues
+    try:
+        scores = score_issues(issues)
+    except Exception:
+        # Scores are only shown to the reviewer, so a missing model or package must not fail the run.
+        logger.exception("Necessity scoring failed; continuing without scores")
+        return {"issue_scores": []}
+    issue_scores = [{"section": issue.section, "issue": issue.issue, "score": score} for issue, score in zip(issues, scores)]
+    # Scores are informational for the reviewer; every issue still goes to change proposal.
+    return {"issue_scores": issue_scores}
+
+
 def change_proposal_node(state: workflowState):
     direct = {"runbook_text": state["runbook_text"]} if "runbook_text" in state else {}
     return {"change_proposal": create_change_proposal(runbook_review=state["runbook_review"], **direct)}
@@ -74,6 +92,10 @@ def human_approval_node(state: workflowState):
     print("RUNBOOK CHANGE PROPOSAL")
     print(proposal.readable_feedback)
     print(f"Documents: {state.get('runbook_paths') or [state.get('runbook_path')]}")
+    if state.get("issue_scores"):
+        print("\nIssue necessity scores:")
+        for entry in state["issue_scores"]:
+            print(f"  {entry['score']:.2f} [{entry['section']}] {entry['issue']}")
     for i, change in enumerate(proposal.changes, 1):
         print(f"\nCHANGE {i}\nRunbook: {change.runbook}\nSection: {change.section}\nCURRENT:\n{change.current_text}\nPROPOSED:\n{change.proposed_text}\nREASON:\n{change.reason}")
     while True:

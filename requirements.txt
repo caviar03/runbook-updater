@@ -9,3 +9,9 @@ qdrant-client[fastembed]
 requests
 fastapi>=0.142,<0.143
 uvicorn>=0.54,<0.55
+# Necessity scorer. On Linux, install CPU-only torch first to avoid the multi-GB CUDA build:
+# pip install torch --index-url https://download.pytorch.org/whl/cpu
+transformers>=5.18,<6
+torch>=2.14,<3
+sentencepiece>=0.2,<0.3
+protobuf>=7,<8
