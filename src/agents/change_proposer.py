@@ -1,32 +1,20 @@
 from src.config import llm
 from src.models.change_proposal import changeProposal
 from src.models.runbook_review import runbookReview
-from src.retrieval.retriever import retrieve_chunks
+def retrieve_chunks(*args, **kwargs):
+    from src.retrieval.retriever import retrieve_chunks as retrieve
+    return retrieve(*args, **kwargs)
 
 
-def create_change_proposal( runbook_review: runbookReview) -> changeProposal:
-    queries = [
-        issue.issue
-        for issue in runbook_review.issues
-    ]
 
-    retrieved_chunks = []
-
-    for query in queries:
-        results = retrieve_chunks(query, limit=3)
-        retrieved_chunks.extend(results)
-
-    # Remove duplicate chunks
-    unique_chunks = {}
-
-    for chunk in retrieved_chunks:
-        text = chunk.payload["text"]
-        unique_chunks[text] = chunk
-
-    relevant_runbook = "\n\n".join(
-        chunk.payload["text"]
-        for chunk in unique_chunks.values()
-    )
+def create_change_proposal( runbook_review: runbookReview, runbook_text: str | None = None) -> changeProposal:
+    if runbook_text is not None:
+        relevant_runbook = runbook_text
+    else:
+        chunks = []
+        for issue in runbook_review.issues:
+            chunks.extend(retrieve_chunks(issue.issue, limit=3))
+        relevant_runbook = "\n\n".join(dict.fromkeys(chunk.payload["text"] for chunk in chunks))
 
     prompt = f"""
 You are the Change Proposal agent.
@@ -53,6 +41,9 @@ Rules:
 6. Preserve the existing terminology and structure.
 7. If a finding cannot be supported by the retrieved
    runbook content, do not propose a change for it.
+8. Each current_text must be an exact, nonempty, contiguous
+   passage within one paragraph (including a table-cell paragraph).
+   Split edits to multiple paragraphs into separate changes.
 
 ====================
 FINAL RUNBOOK REVIEW

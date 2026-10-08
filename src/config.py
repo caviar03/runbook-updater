@@ -3,7 +3,11 @@ from langchain_openai import ChatOpenAI
 
 load_dotenv()
 
-llm = ChatOpenAI(
-    model="gpt-5-nano",
-    temperature=0
-)
+
+class LazyModel:
+    """Allow health/API startup without model credentials; construct on first use."""
+    def with_structured_output(self, schema):
+        return ChatOpenAI(model="gpt-5-nano", temperature=0, timeout=60, max_retries=1).with_structured_output(schema)
+
+
+llm = LazyModel()

@@ -1,14 +1,7 @@
-from pydantic import BaseModel
-
 from src.config import llm
 from src.models.code_review import CodeChangeReview
 from src.models.runbook_review import runbookReview
-
-
-class orchestratorDecision(BaseModel):
-    proceed: bool
-    reasoning: str
-    feedback: str
+from src.models.orchestrator_decision import orchestratorDecision
 
 
 def orchestrator_review(code_review: CodeChangeReview, runbook_review: runbookReview) -> orchestratorDecision:

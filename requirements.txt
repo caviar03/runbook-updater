@@ -2,8 +2,10 @@ langchain
 langchain-openai
 langgraph
 pydantic
-python-docx
+python-docx>=1.2
 python-dotenv
 docling
 qdrant-client[fastembed]
 requests
+fastapi>=0.142,<0.143
+uvicorn>=0.54,<0.55

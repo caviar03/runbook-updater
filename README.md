@@ -1,3 +1,10 @@
+The GitHub App API is implemented with durable SQLite state and direct DOCX input.
+The App supplies the complete merged source snapshot using its existing App
+credentials; the HTTP backend does not need `GITHUB_TOKEN` or fetch GitHub itself.
+The CLI instructions below describe a separate legacy entry point.
+See [API.md](API.md) for configuration, endpoints, and restart behavior.
+Use `requirements-api.txt` to run this path without retrieval dependencies.
+
 Local Development Setup
 
 Follow the steps below to run the project locally.
@@ -92,6 +99,19 @@ Python DOCX
 
 Create a .env file in the project root:
 
+Copy `.env.example` to `.env` and fill `OPENAI_API_KEY`, `GITHUB_TOKEN`,
+`GITHUB_OWNER`, `GITHUB_REPO`, `GITHUB_PR_NUMBER`, and
+`GITHUB_MERGE_COMMIT_SHA`. The PR must already be merged at the supplied
+commit. The saved PR file patches supply the complete change across normal,
+squash, and rebase merges; the old source context is reconstructed against
+the original PR head.
+
+`RUNBOOK_PATH` selects the local DOCX to update. `RUNBOOK_OUTPUT_PATH` is
+optional and defaults to a sibling `.updated.docx` file. The workflow does
+not currently index or automatically select runbooks: Qdrant must already
+contain the relevant chunks. The HTTP API instead reads the selected DOCX directly; repository
+publication is not implemented yet.
+
 6. Run the Application
 
 Make sure you are in the project root directory:
@@ -118,3 +138,29 @@ Generate proposed runbook changes.
 Ask for human approval.
 Apply the approved changes.
 Produce the updated runbook.
+
+Both analyzers receive the code review, retrieved runbook evidence, and
+rework feedback. A no-update result exits without prompting or writing.
+Both analyzers rerun on rework, with a default limit of three analysis
+attempts. The CLI's `edit` response supplies feedback for a new analysis;
+`no` performs no document write. Approval uses the configured document
+and output paths.
+
+Approved DOCX edits must each match exactly once within a paragraph or
+table-cell paragraph. The writer preserves surrounding runs and their
+formatting and refuses missing/ambiguous text or edits overlapping fields
+or images. It saves atomically after all edits succeed. Split changes to
+multiple paragraphs into separate proposal entries.
+
+Workflow regression tests
+
+```sh
+python -m pip install -r requirements-test.txt
+python -m pytest -q
+```
+
+Tests use real LangGraph execution and DOCX files with mocked model,
+retrieval, and GitHub responses. They block network requests and do not
+require live API credentials or an embedding model download. The smaller
+test requirements do not install Docling or FastEmbed; install the full
+`requirements.txt` to run live parsing/retrieval.

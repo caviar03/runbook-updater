@@ -1,9 +1,12 @@
 from src.config import llm
 from src.models.runbook_review import runbookReview
 from src.models.code_review import CodeChangeReview
-from src.retrieval.retriever import retrieve_chunks
+def retrieve_chunks(*args, **kwargs):
+    from src.retrieval.retriever import retrieve_chunks as retrieve
+    return retrieve(*args, **kwargs)
 
-def runbook_analyzer1(code_review: CodeChangeReview) -> runbookReview:
+
+def runbook_analyzer1(code_review: CodeChangeReview, feedback: str = "", runbook_text: str | None = None) -> runbookReview:
     query = f"""
     Identify the runbook sections relevant to these code changes
     and discrepancies:
@@ -11,12 +14,11 @@ def runbook_analyzer1(code_review: CodeChangeReview) -> runbookReview:
     {code_review.model_dump_json(indent=2)}
     """
 
-    retrieved_chunks = retrieve_chunks(query, limit=5)
-
-    relevant_runbook = "\n\n".join(
-        chunk.payload["text"]
-        for chunk in retrieved_chunks
-    )
+    if runbook_text is not None:
+        relevant_runbook = runbook_text
+    else:
+        retrieved_chunks = retrieve_chunks(query, limit=5)
+        relevant_runbook = "\n\n".join(chunk.payload["text"] for chunk in retrieved_chunks)
 
     prompt = f"""
     You are a Runbook Analysis Agent.
@@ -36,8 +38,18 @@ def runbook_analyzer1(code_review: CodeChangeReview) -> runbookReview:
     - Recommend the required documentation change.
     - Do not write the final runbook.
     - Focus only on documentation discrepancies.
+
+    CODE REVIEW
+    {code_review.model_dump_json(indent=2)}
+
+    CURRENT RUNBOOK CONTENT
+    {relevant_runbook or '[No matching runbook sections were retrieved.]'}
+
+    ORCHESTRATOR FEEDBACK
+    {feedback or '[Initial analysis; no rework feedback.]'}
+
+    If there is no supporting runbook evidence, do not invent its contents.
     """
     
     structured_llm = llm.with_structured_output(runbookReview)
     return structured_llm.invoke(prompt)
-

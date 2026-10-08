@@ -1,0 +1,926 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Runbook Updater \u2014 GitHub Interface Contract",
+    "version": "1.3.0",
+    "description": "GitHub App supplies the merged source snapshot; backend analyzes local runbooks and applies separately approved edits."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8000"
+    }
+  ],
+  "security": [
+    {
+      "ServiceToken": []
+    }
+  ],
+  "paths": {
+    "/v1/analyses": {
+      "post": {
+        "operationId": "startAnalysis",
+        "summary": "Start asynchronous analysis after the code PR is merged",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartAnalysis"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Analysis queued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Analysis"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Idempotent replay of accepted analysis",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Analysis"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/v1/analyses/{analysis_id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AnalysisId"
+        }
+      ],
+      "get": {
+        "operationId": "getAnalysis",
+        "summary": "Get progress and the exact reviewable proposal bundle",
+        "responses": {
+          "200": {
+            "description": "Current analysis snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Analysis"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/v1/analyses/{analysis_id}/decisions": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AnalysisId"
+        }
+      ],
+      "post": {
+        "operationId": "submitDecision",
+        "summary": "Accept an atomic version-checked human decision",
+        "description": "Approve/create accepts the reviewed bundle and starts asynchronous application. Deny rejects it. Acknowledge accepts a no-update result. Return 409 before side effects if any input/version is stale.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Decision"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Decision accepted; backend work queued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionAccepted"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Decision accepted or original receipt replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionAccepted"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ServiceToken": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "parameters": {
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "Identical key/body must replay the original operation result without repeated side effects. Different body with the same key returns 409.",
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "AnalysisId": {
+        "name": "analysis_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "Invalid service authentication",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Unknown analysis",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "Stale runbook/proposal, mismatched merged source, competing decision, or conflicting idempotency key. No decision accepted.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "InvalidRequest": {
+        "description": "Invalid request or unsupported decision",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Repository is not enabled",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "StartAnalysis": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "request_id",
+          "attempt",
+          "source",
+          "trigger",
+          "code_snapshot"
+        ],
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "source": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "repository",
+              "pull_request_number",
+              "pull_request_url",
+              "base_sha",
+              "head_sha",
+              "merge_commit_sha",
+              "merged_at"
+            ],
+            "properties": {
+              "repository": {
+                "type": "string",
+                "pattern": "^[^/]+/[^/]+$"
+              },
+              "pull_request_number": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "pull_request_url": {
+                "type": "string",
+                "format": "uri"
+              },
+              "base_sha": {
+                "type": "string",
+                "minLength": 1,
+                "description": "PR base metadata. Read the saved PR diff; do not assume this is the pre-merge parent.",
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "head_sha": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "merge_commit_sha": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Immutable merged commit used to read merged code; supports merge, squash, and rebase.",
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "merged_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "trigger": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "actor"
+            ],
+            "properties": {
+              "type": {
+                "const": "pull_request_merged"
+              },
+              "actor": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "code_snapshot": {
+            "$ref": "#/components/schemas/CodeSnapshot"
+          }
+        }
+      },
+      "Analysis": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "analysis_id",
+          "source_head_sha",
+          "status",
+          "summary",
+          "proposal_version",
+          "proposals",
+          "allowed_decisions",
+          "source_merge_commit_sha"
+        ],
+        "properties": {
+          "analysis_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_head_sha": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "analyzing",
+              "awaiting_decision",
+              "no_update_needed",
+              "applying",
+              "applied",
+              "rejected",
+              "failed",
+              "stale"
+            ]
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "description": "User-readable status/reason, suitable for GitHub."
+          },
+          "proposal_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "description": "Immutable bundle version, including destinations/snapshots/edits. Required non-null for reviewable results and decision receipts."
+          },
+          "proposals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Proposal"
+            }
+          },
+          "allowed_decisions": {
+            "type": "array",
+            "uniqueItems": true,
+            "maxItems": 3,
+            "items": {
+              "type": "string",
+              "enum": [
+                "approve",
+                "deny",
+                "create",
+                "acknowledge"
+              ]
+            }
+          },
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          },
+          "result": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "url": {
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          },
+          "source_merge_commit_sha": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Matches the immutable merged commit submitted with the analysis request."
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "awaiting_decision"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "proposal_version": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "proposals": {
+                  "minItems": 1
+                },
+                "allowed_decisions": {
+                  "minItems": 2,
+                  "allOf": [
+                    {
+                      "contains": {
+                        "const": "deny"
+                      }
+                    },
+                    {
+                      "contains": {
+                        "enum": [
+                          "approve",
+                          "create"
+                        ]
+                      }
+                    }
+                  ],
+                  "items": {
+                    "enum": [
+                      "approve",
+                      "create",
+                      "deny"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "no_update_needed"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "proposal_version": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "proposals": {
+                  "maxItems": 0
+                },
+                "allowed_decisions": {
+                  "const": [
+                    "acknowledge"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "not": {
+                    "enum": [
+                      "awaiting_decision",
+                      "no_update_needed"
+                    ]
+                  }
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "allowed_decisions": {
+                  "maxItems": 0
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "failed"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "error"
+              ]
+            }
+          }
+        ]
+      },
+      "Proposal": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "operation",
+          "reason",
+          "target",
+          "changes"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "update",
+              "create"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Why the selected runbook is the correct destination."
+          },
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          },
+          "changes": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/Change"
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "operation": {
+                  "const": "create"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "target": {
+                  "properties": {
+                    "blob_sha": {
+                      "type": "null"
+                    }
+                  },
+                  "required": [
+                    "blob_sha"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "operation": {
+                  "const": "update"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "target": {
+                  "properties": {
+                    "blob_sha": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "allOf": [
+                    {
+                      "if": {
+                        "properties": {
+                          "kind": {
+                            "const": "local"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ]
+                      },
+                      "then": {
+                        "$ref": "#/components/schemas/LocalTarget"
+                      },
+                      "else": {
+                        "required": [
+                          "blob_sha"
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "Target": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/GitHubTarget"
+          },
+          {
+            "$ref": "#/components/schemas/LocalTarget"
+          }
+        ]
+      },
+      "Change": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "section",
+          "current_text",
+          "proposed_text",
+          "reason"
+        ],
+        "properties": {
+          "section": {
+            "type": "string",
+            "minLength": 1
+          },
+          "current_text": {
+            "type": "string"
+          },
+          "proposed_text": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "Decision": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "decision",
+          "proposal_version",
+          "head_sha",
+          "actor",
+          "merge_commit_sha"
+        ],
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "deny",
+              "create",
+              "acknowledge"
+            ]
+          },
+          "proposal_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "head_sha": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "actor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "merge_commit_sha": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[0-9a-f]{40}$"
+          }
+        }
+      },
+      "DecisionAccepted": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accepted",
+          "analysis"
+        ],
+        "properties": {
+          "accepted": {
+            "const": true
+          },
+          "analysis": {
+            "$ref": "#/components/schemas/Analysis"
+          }
+        }
+      },
+      "ErrorDetail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        }
+      },
+      "GitHubTarget": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "repository",
+          "path",
+          "ref",
+          "blob_sha"
+        ],
+        "properties": {
+          "repository": {
+            "type": "string",
+            "pattern": "^[^/]+/[^/]+$"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "blob_sha": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "kind": {
+            "const": "github"
+          }
+        }
+      },
+      "LocalTarget": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "path",
+          "revision_sha256"
+        ],
+        "properties": {
+          "kind": {
+            "const": "local"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "revision_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      },
+      "CodeSnapshot": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "head_sha",
+          "merge_commit_sha",
+          "files"
+        ],
+        "description": "Collected and persisted by the authenticated GitHub App. Identity must match source; maximum serialized UTF-8 size 10 MiB. No installation tokens are forwarded.",
+        "properties": {
+          "head_sha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "merge_commit_sha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "files": {
+            "type": "array",
+            "maxItems": 3000,
+            "items": {
+              "$ref": "#/components/schemas/SourceFile"
+            }
+          }
+        }
+      },
+      "SourceFile": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "file_path",
+          "previous_file_path",
+          "status",
+          "additions",
+          "deletions",
+          "patch",
+          "pr_head_content",
+          "merged_content"
+        ],
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "previous_file_path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "added",
+              "removed",
+              "modified",
+              "renamed",
+              "copied",
+              "changed",
+              "unchanged"
+            ]
+          },
+          "additions": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "deletions": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "patch": {
+            "type": "string",
+            "description": "Complete saved PR unified patch, never a last-commit diff. Preserve whitespace."
+          },
+          "pr_head_content": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Exact UTF-8 contents at the original PR head. Null for binary/non-UTF-8. Removed text files use empty string and are reconstructed from their deletion patch."
+          },
+          "merged_content": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Exact UTF-8 contents at the immutable merged commit. Null for binary/non-UTF-8; empty string for removed files."
+          }
+        }
+      }
+    }
+  }
+}

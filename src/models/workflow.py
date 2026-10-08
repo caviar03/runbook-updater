@@ -6,24 +6,27 @@ from .runbook_review import runbookReview
 from .change_proposal import changeProposal
 from .orchestrator_decision import orchestratorDecision
 
-class workflowState(TypedDict):
 
+class workflowState(TypedDict, total=False):
     old_code: str
-    diff: str
+    current_code: str
+    code_diff: str
+    changed_files: list[dict]
+    runbook_text: str
+    review_only: bool
     runbook_path: str
-
-
+    output_path: str
     code_review: Optional[CodeChangeReview]
     runbook_review: Optional[runbookReview]
     runbook_review1: Optional[runbookReview]
     runbook_review2: Optional[runbookReview]
-
     orchestrator_decision: Optional[orchestratorDecision]
     orchestrator_feedback: str
-
     change_proposal: Optional[changeProposal]
     approved_changes: Optional[changeProposal]
-
-    updated_runbook: str
-
+    human_feedback: str
+    updated_runbook_path: str
     analysis_attempts: int
+    max_analysis_attempts: int
+    workflow_status: str
+    error: str

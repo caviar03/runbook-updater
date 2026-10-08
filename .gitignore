@@ -2,5 +2,8 @@
 __pycache__/
 *.pyc
 .env
+.env.*
+!.env.example
+.data/
 .DS_Store
 .ipynb_checkpoints/
