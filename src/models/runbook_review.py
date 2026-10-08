@@ -2,7 +2,7 @@ from pydantic import BaseModel
 
 
 class runbookIssue(BaseModel):
-    runbook: str
+    runbook: str = ""
     section: str
     issue: str
     evidence_from_code: str

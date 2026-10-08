@@ -2,7 +2,7 @@ from pydantic import BaseModel
 
 
 class proposedChange(BaseModel):
-    runbook: str
+    runbook: str = ""
     section: str
     current_text: str
     proposed_text: str

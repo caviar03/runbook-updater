@@ -1,12 +1,20 @@
 from src.config import llm
 from src.models.runbook_review import runbookReview
 from src.models.code_review import CodeChangeReview
-from src.retrieval.retriever import format_chunks, retrieve_for_queries
+def retrieve_for_queries(*args, **kwargs):
+    from src.retrieval.retriever import retrieve_for_queries as retrieve
+    return retrieve(*args, **kwargs)
+
+
+def format_chunks(chunks):
+    from src.retrieval.retriever import format_chunks as format_content
+    return format_content(chunks)
+
 
 # Analyzer 2 checks operational procedures: whether the steps an
 # operator would follow still work given the changed behavior.
 
-def runbook_analyzer2(code_review: CodeChangeReview, feedback: str = "") -> runbookReview:
+def runbook_analyzer2(code_review: CodeChangeReview, feedback: str = "", runbook_text: str | None = None) -> runbookReview:
     queries = [
         change.operational_impact
         for change in code_review.code_changes
@@ -15,10 +23,10 @@ def runbook_analyzer2(code_review: CodeChangeReview, feedback: str = "") -> runb
         for discrepancy in code_review.existing_discrepancies
     ]
 
-    if not queries:
+    if not queries and runbook_text is None:
         return runbookReview(update_required=False, issues=[])
 
-    relevant_runbook = format_chunks(
+    relevant_runbook = runbook_text if runbook_text is not None else format_chunks(
         retrieve_for_queries(queries, limit=5)
     )
 
@@ -63,7 +71,7 @@ ORCHESTRATOR FEEDBACK FROM PREVIOUS ATTEMPT
 {feedback or "None"}
 
 ====================
-RETRIEVED CURRENT RUNBOOK SECTIONS
+CURRENT RUNBOOK SECTIONS
 ====================
 {relevant_runbook}
 

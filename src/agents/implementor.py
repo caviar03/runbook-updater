@@ -1,11 +1,14 @@
 import os
 import re
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 from docx import Document
-from docx.table import Table
+from docx.oxml.ns import qn
+from docx.text.run import Run
 from docx.text.paragraph import Paragraph
 
-from src.models.change_proposal import changeProposal, proposedChange
+from src.models.change_proposal import changeProposal
 
 
 def _normalize(text: str) -> str:
@@ -37,40 +40,6 @@ def _heading_level(paragraph: Paragraph) -> int | None:
     style = paragraph.style.name if paragraph.style is not None else ""
     match = re.match(r"Heading (\d+)", style)
     return int(match.group(1)) if match else None
-
-
-def _iter_paragraphs_with_sections(document):
-    """Yield (paragraph, heading_stack) in document order, including table cells."""
-    heading_stack: list[tuple[int, str]] = []
-
-    for child in document.element.body.iterchildren():
-
-        if child.tag.endswith("}p"):
-            paragraph = Paragraph(child, document)
-            level = _heading_level(paragraph)
-
-            if level is not None:
-                heading_stack = [h for h in heading_stack if h[0] < level]
-                heading_stack.append((level, paragraph.text))
-                continue
-
-            yield paragraph, [h[1] for h in heading_stack]
-
-        elif child.tag.endswith("}tbl"):
-            table = Table(child, document)
-            seen_cells = set()
-
-            for row in table.rows:
-                for cell in row.cells:
-                    # Merged cells appear once per spanned column.
-                    # Store the elements themselves (not id()) so they stay
-                    # alive and identity comparisons remain valid.
-                    if cell._tc in seen_cells:
-                        continue
-                    seen_cells.add(cell._tc)
-
-                    for paragraph in cell.paragraphs:
-                        yield paragraph, [h[1] for h in heading_stack]
 
 
 def _in_section(section: str, headings: list[str]) -> bool:
@@ -112,104 +81,151 @@ def _table_cell_edits(current_text: str, proposed_text: str) -> list[tuple[str, 
     ]
 
 
-def _replace_in_paragraph(paragraph: Paragraph, current_text: str, proposed_text: str) -> bool:
-    # Prefer replacing inside a single run so formatting is preserved.
-    for run in paragraph.runs:
-        if current_text in run.text:
-            run.text = run.text.replace(current_text, proposed_text, 1)
-            return True
-
-    if current_text not in paragraph.text or not paragraph.runs:
-        return False
-
-    new_text = paragraph.text.replace(current_text, proposed_text, 1)
-
-    for run in paragraph.runs:
-        run.text = ""
-
-    paragraph.runs[0].text = new_text
-    return True
-
-
-def _apply_text_edit(document, section: str, current_text: str, proposed_text: str) -> bool:
-    if not current_text:
-        return False
-
-    for paragraph, headings in _iter_paragraphs_with_sections(document):
-        if not _in_section(section, headings):
-            continue
-
-        if _replace_in_paragraph(paragraph, current_text, proposed_text):
-            return True
-
-    return False
+def _iter_paragraphs_with_sections(container, inherited=()):
+    """Document order and heading context, including nested tables."""
+    headings = list(inherited)
+    seen_cells = set()
+    for item in container.iter_inner_content():
+        if isinstance(item, Paragraph):
+            level = _heading_level(item)
+            if level is not None:
+                headings = [heading for heading in headings if heading[0] < level]
+                headings.append((level, item.text))
+            yield item, [heading[1] for heading in headings]
+        else:
+            for row in item.rows:
+                for cell in row.cells:
+                    if cell._tc in seen_cells:
+                        continue
+                    seen_cells.add(cell._tc)
+                    yield from _iter_paragraphs_with_sections(cell, headings)
 
 
-def _apply_change(document, change: proposedChange) -> bool:
-    current_text = change.current_text.strip()
-    proposed_text = change.proposed_text.strip()
-
-    if _apply_text_edit(document, change.section, current_text, proposed_text):
-        return True
-
-    # Fall back to per-cell edits when the change quotes flattened table rows.
-    cell_edits = _table_cell_edits(current_text, proposed_text)
-
-    if not cell_edits:
-        return False
-
-    results = [
-        _apply_text_edit(document, change.section, old, new)
-        for old, new in cell_edits
-    ]
-
-    return any(results)
-
-    return False
+def _paragraphs(container):
+    for paragraph in container.paragraphs:
+        yield paragraph
+    visited_cells = set()
+    for table in container.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                # Merged cells may appear more than once in the row/column grid.
+                if cell._tc in visited_cells:
+                    continue
+                visited_cells.add(cell._tc)
+                yield from _paragraphs(cell)
 
 
-def implementor(
-    runbook_paths: list[str],
-    approved_changes: changeProposal,
-    output_dir: str,
-) -> list[str]:
+def _runs(paragraph):
+    for item in paragraph.iter_inner_content():
+        if isinstance(item, Run):
+            yield item
+        else:
+            yield from item.runs
 
-    changes_by_path: dict[str, list[proposedChange]] = {}
 
+def _replace(paragraph, current_text, proposed_text):
+    runs = list(_runs(paragraph))
+    text = "".join(run.text for run in runs)
+    if text != paragraph.text:
+        raise ValueError("This paragraph contains unsupported text structures")
+    start = text.index(current_text)
+    end = start + len(current_text)
+    positions = []
+    cursor = 0
+    for i, run in enumerate(runs):
+        positions.append((i, cursor, cursor + len(run.text)))
+        cursor += len(run.text)
+    first, first_start, _ = next(item for item in positions if item[1] <= start < item[2])
+    last, last_start, _ = next(item for item in positions if item[1] < end <= item[2])
+    supported = {qn(f"w:{tag}") for tag in ["rPr", "t", "tab", "br", "cr"]}
+    for run in runs[first:last + 1]:
+        if any(element.tag not in supported for element in run._r):
+            raise ValueError("Approved text overlaps an image, field, or unsupported run content")
+    prefix = runs[first].text[:start - first_start]
+    suffix = runs[last].text[end - last_start:]
+    if first == last:
+        runs[first].text = prefix + proposed_text + suffix
+    else:
+        runs[first].text = prefix + proposed_text
+        for i in range(first + 1, last):
+            runs[i].text = ""
+        runs[last].text = suffix
+
+
+def prepare_document(runbook_path: str, approved_changes: changeProposal, runbook_name=None):
+    if not approved_changes or not approved_changes.changes:
+        raise ValueError("Nonempty human-approved changes are required")
+    document = Document(runbook_path)
+    paragraphs = list(_iter_paragraphs_with_sections(document))
+    name = runbook_name or runbook_path
+    for change in approved_changes.changes:
+        if change.runbook and _resolve_runbook_path(change.runbook, [name]) is None:
+            raise ValueError(f"Proposal identifies a different runbook: {change.runbook!r}")
+        if not change.current_text or not change.current_text.strip():
+            raise ValueError("An update must identify exact nonempty current text")
+        edits = [(change.current_text, change.proposed_text)]
+        if not any(change.current_text in paragraph.text for paragraph, _ in paragraphs):
+            # Support the upstream Docling table representation while requiring
+            # every changed cell to match. Never save a partially applied edit.
+            edits = _table_cell_edits(change.current_text, change.proposed_text) or edits
+        for current_text, proposed_text in edits:
+            matches = [(paragraph, headings) for paragraph, headings in paragraphs if current_text in paragraph.text]
+            if sum(paragraph.text.count(current_text) for paragraph, _ in matches) > 1:
+                matches = [(paragraph, headings) for paragraph, headings in matches if _in_section(change.section, headings)]
+            occurrences = sum(paragraph.text.count(current_text) for paragraph, _ in matches)
+            if occurrences != 1:
+                raise ValueError(f"Approved text for {change.section!r} must match exactly once; found {occurrences}")
+            _replace(matches[0][0], current_text, proposed_text)
+    return document
+
+
+def read_runbook_text(runbook_path: str, runbook_name=None) -> str:
+    document = Document(runbook_path)
+    if runbook_name:
+        return "\n\n".join(
+            f"[Runbook: {runbook_name}]\n[Section: {' > '.join(headings)}]\n{paragraph.text}"
+            for paragraph, headings in _iter_paragraphs_with_sections(document)
+        )
+    return "\n\n".join(paragraph.text for paragraph in _paragraphs(document))
+
+
+def _save_document(document, output_path):
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    # Publish only after every approved edit succeeds; failures leave existing files intact.
+    temporary = None
+    try:
+        with NamedTemporaryFile(dir=output.parent, suffix=".docx", delete=False) as file:
+            temporary = Path(file.name)
+        document.save(temporary)
+        os.replace(temporary, output)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    return str(output)
+
+
+def implementor(runbook_path=None, approved_changes=None, output_path=None, *,
+                runbook_paths=None, output_dir=None, runbook_name=None):
+    if runbook_paths is None and isinstance(runbook_path, (list, tuple)):
+        runbook_paths, output_dir = runbook_path, output_path
+    if runbook_paths is None:
+        document = prepare_document(runbook_path, approved_changes, runbook_name=runbook_name)
+        return _save_document(document, output_path)
+    if not approved_changes or not approved_changes.changes:
+        raise ValueError("Nonempty human-approved changes are required")
+    names = [_normalize(Path(path).name) for path in runbook_paths]
+    if len(set(names)) != len(names):
+        raise ValueError("Runbook file names must be unique for multi-document updates")
+    changes_by_path = {}
     for change in approved_changes.changes:
         path = _resolve_runbook_path(change.runbook, runbook_paths)
-
         if path is None:
-            print(f"IMPLEMENTOR: skipped change, unknown runbook '{change.runbook}'")
-            continue
-
+            raise ValueError(f"Unknown or ambiguous runbook: {change.runbook!r}")
         changes_by_path.setdefault(path, []).append(change)
-
-    os.makedirs(output_dir, exist_ok=True)
-
-    updated_paths = []
-
+    # Validate all documents before writing any output copies.
+    prepared = []
     for path, changes in changes_by_path.items():
-        document = Document(path)
-        applied = 0
-
-        for change in changes:
-            if _apply_change(document, change):
-                applied += 1
-            else:
-                print(
-                    f"IMPLEMENTOR: could not find text in section "
-                    f"'{change.section}' of {os.path.basename(path)}: "
-                    f"{change.current_text[:80]!r}"
-                )
-
-        if applied == 0:
-            continue
-
-        output_path = os.path.join(output_dir, os.path.basename(path))
-        document.save(output_path)
-        updated_paths.append(output_path)
-
-        print(f"IMPLEMENTOR: applied {applied}/{len(changes)} changes to {output_path}")
-
-    return updated_paths
+        proposal = changeProposal(changes=changes, readable_feedback=approved_changes.readable_feedback)
+        prepared.append((prepare_document(path, proposal), Path(output_dir) / Path(path).name))
+    return [_save_document(document, output) for document, output in prepared]

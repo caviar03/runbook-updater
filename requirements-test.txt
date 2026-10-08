@@ -1,0 +1,11 @@
+langgraph
+langchain-openai
+python-dotenv
+python-docx>=1.2
+requests
+qdrant-client
+pytest
+fastapi>=0.142,<0.143
+uvicorn>=0.54,<0.55
+httpx
+jsonschema>=4.26,<5

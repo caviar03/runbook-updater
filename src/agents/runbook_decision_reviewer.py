@@ -42,8 +42,9 @@ You must:
 9. Ensure every recommended change is directly justified
    by the code change and the documented runbook content.
 
-10. Preserve the section identified by the analyzer when
-    the finding is valid.
+10. Preserve the exact runbook filename and section identified
+    by the analyzer when the finding is valid. Do not combine
+    content from different runbooks into one issue.
 
 The final output must be a single RunbookReview.
 

@@ -1,16 +1,24 @@
 from src.config import llm
 from src.models.change_proposal import changeProposal
 from src.models.runbook_review import runbookReview
-from src.retrieval.retriever import format_chunks, retrieve_for_queries
+def retrieve_for_queries(*args, **kwargs):
+    from src.retrieval.retriever import retrieve_for_queries as retrieve
+    return retrieve(*args, **kwargs)
 
 
-def create_change_proposal( runbook_review: runbookReview) -> changeProposal:
+def format_chunks(chunks):
+    from src.retrieval.retriever import format_chunks as format_content
+    return format_content(chunks)
+
+
+
+def create_change_proposal( runbook_review: runbookReview, runbook_text: str | None = None) -> changeProposal:
     queries = [
         issue.issue
         for issue in runbook_review.issues
     ]
 
-    relevant_runbook = format_chunks(
+    relevant_runbook = runbook_text if runbook_text is not None else format_chunks(
         retrieve_for_queries(queries, limit=3)
     )
 
