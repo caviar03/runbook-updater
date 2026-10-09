@@ -1,7 +1,7 @@
 from qdrant_client import models
 
 from src.retrieval.vector_store import (
-    COLLECTION_NAME,
+    collection_name,
     EMBEDDING_MODEL,
     get_qdrant_client,
 )
@@ -15,7 +15,7 @@ def retrieve_chunks(
     client = get_qdrant_client()
 
     results = client.query_points(
-        collection_name=COLLECTION_NAME,
+        collection_name=collection_name(),
         query=models.Document(
             text=query,
             model=EMBEDDING_MODEL,

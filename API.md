@@ -1,182 +1,125 @@
 # GitHub App API
 
-The backend accepts a confirmed code merge, analyzes the App-supplied saved PR diff against
-one configured local DOCX, and waits for a separate document decision. Retrieval
-is bypassed: no Qdrant, embeddings, Docling, indexing, or runbook discovery is
-used by the API. Both analyzers and the proposer receive the document text,
-including table-cell paragraphs, directly. Direct content now carries runbook
-filename and section labels shared with the upstream multi-runbook agents.
-The API still selects one configured file; the CLI can index and update several.
-Legacy saved proposals without a runbook identifier remain readable and applicable;
-a new proposal that identifies a different file is rejected before review.
+The API is a transport and persistence adapter to the existing backend indexer,
+retrieval agents, LangGraph workflow, and DOCX writer. The GitHub App sends the
+complete merged code snapshot; it never opens, chooses, indexes, or edits runbooks.
+New analyses do not supply full document text to the agents. The backend parses
+its runbooks with Docling, embeds their chunks, searches Qdrant, and generates
+proposals using its existing workflow. Agent prompts, ranking, and editing rules
+are unchanged.
 
 ## Start locally
 
-Run from `runbook-updater` using Python 3.12 or later on macOS/Linux:
+Run from the backend root:
 
 ```sh
-python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements-api.txt
-cp .env.example .env
-```
-
-Fill these fields in `.env`:
-
-| Setting | Value |
-| --- | --- |
-| `BACKEND_TOKEN` | A random service token of at least 24 characters; use the same value in the GitHub App. Generate one with `python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`. |
-| `SOURCE_REPOSITORY` | `sriram-senthilkr/mock-website`, or the single selected code repository. |
-| `OPENAI_API_KEY` | Model credential. Required when a job starts analysis, not for API startup/health. |
-| `RUNBOOK_PATH` | Existing DOCX file to analyze. Choose a document relevant to your test code. |
-| `BACKEND_DATA_DIR` | Durable local directory, default `.data`. Keep it across restarts. |
-
-Start the service:
-
-```sh
 .venv/bin/python -m uvicorn src.api.app:create_app --factory --host 127.0.0.1 --port 8000 --workers 1
 ```
 
-`GET http://127.0.0.1:8000/health` reports that the endpoint is reachable.
-Interactive API documentation is at `http://127.0.0.1:8000/docs`.
-All `/v1` calls need `Authorization: Bearer <BACKEND_TOKEN>`; both POST calls
-also need a nonempty `Idempotency-Key` header. Do not run multiple workers
-against the same directory; a process lock prevents duplicate execution.
+Keep `BACKEND_TOKEN`, `SOURCE_REPOSITORY`, `OPENAI_API_KEY`, `OPENAI_MODEL`,
+`OPENAI_TIMEOUT_SECONDS`, and `BACKEND_DATA_DIR` in `.env`. The App uses the same
+shared token; the backend needs no GitHub credential. Model credentials are
+required for analysis, not endpoint startup.
 
-In `github-app/.env`, use `BACKEND_URL=http://127.0.0.1:8000` and the same
-`BACKEND_TOKEN`, with `RELEASE_ON=approval` and `NO_UPDATE_POLICY=acknowledge`.
-Keep the App credentials, webhook secret, and selected repository configured.
-Run the App with `npm start` (live mode), rather than `npm run smoke`.
-Cloudflare exposes the App's port 3000 webhook, not the backend's port 8000.
-The existing running smoke service is not automatically switched by this change.
+Use `RUNBOOK_PATHS` as a JSON array of DOCX paths. If absent, `RUNBOOK_PATH`
+selects a single document; with neither set, all `test_data/input/*.docx` files
+are selected. Names must be unique. Configure only backend-owned runbooks.
 
-## Endpoints
+API retrieval defaults to embedded Qdrant at `BACKEND_DATA_DIR/qdrant`, so no
+Docker service is required. `QDRANT_URL` instead selects a Qdrant server. The
+existing CLI retains its server defaults. First analysis may download the
+backend tokenizer/embedding model. Index failures are reported as
+`RETRIEVAL_FAILED`; there is no direct-document fallback.
 
-The request/response contract is in
-[`../github-app/BACKEND_API.md`](../github-app/BACKEND_API.md) and
-[`../github-app/backend.openapi.json`](../github-app/backend.openapi.json).
+Run one backend process/worker. The process lock prevents competing workers.
+The embedded client is shared across the parallel analyzer threads with locked
+access. `GET /health` reports retrieval enabled; `/docs` exposes the contract.
+Cloudflare exposes the GitHub App on port 3000, not the backend on port 8000.
 
-| Endpoint | Result |
+## Endpoints and document decisions
+
+All `/v1` calls require `Authorization: Bearer <BACKEND_TOKEN>`. Every POST
+requires `Idempotency-Key`. Schema version 1.4 is in `openapi.json` and the
+identical App contract `../github-app/backend.openapi.json`.
+
+| Endpoint | Behavior |
 | --- | --- |
-| `POST /v1/analyses` | `202` queued snapshot, before model work. Requires the original PR head and immutable merged commit, a merged timestamp, PR URL/number, and trigger `pull_request_merged`. A complete `code_snapshot` is required. Other repositories return `403`. |
-| `GET /v1/analyses/{id}` | `200` current snapshot with full changes and allowed decisions. Unknown IDs return `404`. |
-| `POST /v1/analyses/{id}/decisions` | `202` accepted approval in `applying`, or `200` accepted denial/acknowledgment. Requires the exact proposal version, original head SHA, merged SHA, and GitHub actor. |
+| `POST /v1/analyses` | Queue analysis using the App's saved source snapshot. |
+| `GET /v1/analyses/{id}` | Return analysis progress and all document proposals. |
+| `POST /v1/analyses/{id}/proposals/{proposal_id}/decisions` | Approve or deny one document. |
+| `POST /v1/analyses/{id}/decisions` | Acknowledge an overall no-update result, or decide a saved legacy single-document job. |
 
-Source SHAs must be full lowercase 40-character Git SHA-1 values. The App verifies GitHub reports the PR as merged, reads the complete saved PR
-file list, and fetches contents at the original PR head and merged commit using
-its installation authentication. It sends these as `code_snapshot`, bound to
-the same source SHAs. The backend trusts the bearer-authenticated App as its
-source provider and checks that the snapshot identity matches the request. It
-reconstructs the old text from the saved PR patches locally; it makes no GitHub
-requests and requires no `GITHUB_TOKEN`. Installation tokens and private keys
-are never included in the payload. The actor comes from the App's verified
-webhook; the backend adds no approver role restriction. Invalid requests/actions return `422`; authentication failures
-return `401`; stale or competing decisions return `409` without acceptance.
+Source requests retain the v1.3 complete `code_snapshot`, source head/merge SHAs,
+PR metadata, and merged trigger. Code whitespace and complete PR patches are
+preserved. Snapshot limits remain 10 MiB and 3000 files. No installation tokens
+or private keys are forwarded. The backend trusts the authenticated App as its
+source provider and reconstructs old source locally.
 
-At review, `allowed_decisions` is `["approve", "deny"]`. No-update results have
-a version and require `["acknowledge"]`; acknowledgment is stored with its actor.
-Creation is not implemented, so the API does not advertise `create`. A fresh
-retry uses `POST /v1/analyses` with an incremented attempt and a new key.
+New results include `decision_scope: "document"`. Every affected document has
+one proposal with its ID, local target/revision, and complete current/proposed
+passages. Extra fields are:
 
-The local target variant is explicit:
+- `review_status`: `pending`, `approved`, or `denied`.
+- `save_status`: `not_started`, `saving`, `saved`, or `failed`.
+- `decision`: accepted `action` and `actor`, after a decision.
+- `result.output_path`: exact local output after saving.
+- `error`: document-specific save failure when applicable.
 
-```json
-{
-  "kind": "local",
-  "path": "selected-runbook.docx",
-  "revision_sha256": "<64-character hash of the reviewed DOCX bytes>"
-}
-```
+Document decision bodies use the existing fields: `decision` (`approve` or
+`deny`), `proposal_version`, `head_sha`, `merge_commit_sha`, and `actor`.
+A success returns `202` with `{accepted: true, analysis: ...}`. Each decision
+has its own idempotent receipt. A duplicate key/body replays that original
+response; changed bodies or conflicting decisions return `409`.
 
-The GitHub preview labels this as a configured local file. It does not claim a
-GitHub repository, branch, URL, or Git blob identity. Repository targets remain
-supported by the frontend for future integration.
+One approval does not start writing. The overall status remains
+`awaiting_decision` until every affected document is approved or denied. Then
+it becomes `applying` if any were approved, or `rejected` if all were denied.
+Only approved documents are written. Mixed approvals and denials are supported.
+No proposals means `no_update_needed` with `acknowledge`, and no output writes.
+Whole-analysis approval is rejected for new document-scoped proposals.
 
-## Source snapshot
+The proposal version binds the source, saved document revisions, and edits.
+Decision changes do not change that version. Original documents and snapshots
+are checked before approval; approved documents are checked again before the
+batch save. Changed originals become `stale` and require new analysis/approval.
+Invalid auth returns `401`, wrong repository `403`, unknown analysis/proposal
+`404`, and unsupported input/actions `422`.
 
-`POST /v1/analyses` now requires a `code_snapshot` object in addition to the
-existing source metadata. This is contract version 1.3. Metadata-only starts
-return `422`; update the App and backend together.
+## State, outputs, and recovery
 
-```json
-{
-  "head_sha": "<original PR head SHA>",
-  "merge_commit_sha": "<immutable merged SHA>",
-  "files": [{
-    "file_path": "worker.py",
-    "previous_file_path": "worker.py",
-    "status": "modified",
-    "additions": 1,
-    "deletions": 1,
-    "patch": "@@ -1 +1 @@\n-timeout = 30\n+timeout = 60\n",
-    "pr_head_content": "timeout = 60\n",
-    "merged_content": "timeout = 60\n"
-  }]
-}
-```
+SQLite stores source, document manifests, analysis results, individual decisions,
+and exact HTTP receipts. Each analysis saves original-named documents under
+`.data/<id>/sources/` and indexes those copies into its own persistent Qdrant
+collection. Later analyses cannot replace that evidence. Interrupted indexing
+can rebuild from saved copies. Reviewable analyses are not regenerated on restart.
 
-Contents and patches preserve whitespace. `null` contents explicitly identify
-binary/non-UTF-8 data. Removed files have empty merged content; deleted text is
-reconstructed from the complete saved deletion patch against an empty PR-head
-file. Renames carry the previous path. The collector refuses incomplete lists,
-missing or truncated text patches, unsupported contents, and snapshots above
-10 MiB instead of silently omitting files. The backend validates matching SHAs,
-duplicate paths, the file limit, size, and patch consistency.
+The worker validates every approved document before writing. Outputs are
+`.data/<id>/outputs/<original-name>.docx`; the input documents stay untouched.
+The existing writer atomically replaces each output file. A save receipt is
+persisted per document; restart skips completed saves. Recovery from an exit
+between file publication and receipt persistence recreates the same output from
+the original snapshot, without editing an already edited input.
 
-The App needs Contents read access along with its existing Checks and Pull
-requests permissions. Its existing installation credentials fetch source;
-no additional personal access token is needed. Source is never fetched from a
-moving branch tip. The persisted snapshot is reused across connection retries,
-process restarts, and later analysis attempts for the same merge.
+A failed save records its document error and preserves other successful copies.
+The analysis never claims all outputs were saved when some failed. Retry analysis
+creates a fresh attempt and requires fresh decisions; old outputs remain available.
+Legacy stored analyses preserve their single-document decisions and
+`.data/<id>/updated.docx` outputs. No state migration or automatic reanalysis occurs.
 
-Previously prepared, reviewable, or approved backend jobs still use their saved
-state. Legacy queued jobs without source data cannot fetch it under this flow:
-they fail and need a fresh analysis retry from the updated App.
+Reviews are limited per document to fit complete GitHub comments. Oversized
+content fails explicitly rather than truncating passages. The aggregate response
+has a 1 MiB limit. Keep the entire data directory, including the vector store,
+snapshots, and outputs, for recovery. No GitHub publication is performed.
 
-## Saved state and approval
-
-SQLite (`.data/state.sqlite3`, with WAL and full synchronous writes) stores
-requests, prepared code/document inputs, model results, versioned proposals,
-decisions with actor, output paths, and exact accepted HTTP response receipts.
-Every decision and receipt is committed in the same transaction as the next
-workflow step. Repeating a successful POST with the same key/body replays the
-original response, even after progress or a restart. A different body for that
-key returns `409`. Only one decision can win.
-
-The App saves the complete source snapshot in its SQLite run state before the
-first backend POST. Backend requests and their supplied source are persisted
-at acceptance. The worker prepares the code context and saves an immutable
-`source.docx` before agent execution. An interrupted analysis restarts the agent graph from those
-saved inputs; intermediate model calls may be repeated. A completed proposal
-awaiting review survives restart without regeneration or terminal `input()`.
-Queued jobs and approved application jobs resume automatically on startup.
-
-Proposal versions bind the source identity, document revision, destination,
-and full changes. The backend validates exact paragraph replacements before
-showing a proposal, and checks the source DOCX and saved snapshot hashes before
-accepting the decision. Changed or missing documents become `stale`, requiring
-a fresh analysis. Oversized previews fail instead of being silently truncated.
-
-Approval is accepted immediately; the worker then writes
-`.data/<analysis_id>/updated.docx` atomically from the immutable snapshot.
-The configured original is preserved. If the process exits after writing but
-before recording completion, recovery regenerates that job's same output from
-the original snapshot, so edits cannot be applied twice. Denial and
-acknowledgment perform no update write. Failures are durable and visible as
-`failed`; detailed diagnostics stay in backend logs.
-
-Keep the entire data directory for recovery, including DOCX snapshots and
-outputs. Do not edit saved snapshots. This implementation does not commit,
-push, open a runbook PR, or publish/download the output through GitHub. The
-updated file is available locally at the path above; publication is a later
-integration step. The code PR is already merged and this check cannot block it.
-
-## Verify
+## Verification
 
 ```sh
 .venv/bin/python -m pip install -r requirements-test.txt
 .venv/bin/python -m pytest -q
 ```
 
-Tests exercise HTTP requests, real graph execution and DOCX writes, restart
-recovery, accepted receipt replay, competing decisions, stale versions, and
-retrieval bypass. Live GitHub/model network calls are blocked in tests.
+Tests cover legacy jobs, retrieval delegation/isolation, document decisions,
+partial approvals, waits before writing, restart recovery, stale documents,
+HTTP receipts, and failures. External services are mocked in the regression suite;
+the separate local smoke test exercises real parsing, embeddings, and retrieval.

@@ -28,7 +28,7 @@ def create_app(settings=None, service=None, start_worker=True):
             if start_worker:
                 service.stop_worker()
 
-    app = FastAPI(title="Runbook updater API", version="1.3.0", lifespan=lifespan)
+    app = FastAPI(title="Runbook updater API", version="1.4.0", lifespan=lifespan)
     app.state.service = service
 
     def authorize(authorization: Annotated[str | None, Header()] = None):
@@ -61,7 +61,7 @@ def create_app(settings=None, service=None, start_worker=True):
 
     @app.get("/health")
     def health():
-        return {"status": "ok", "storage": "sqlite", "retrieval": "disabled"}
+        return {"status": "ok", "storage": "sqlite", "retrieval": "enabled"}
 
     @app.post("/v1/analyses", dependencies=[Depends(authorize)], status_code=202)
     def start(body: StartAnalysis, key: str = Depends(idempotency_key)):
@@ -75,6 +75,11 @@ def create_app(settings=None, service=None, start_worker=True):
     @app.post("/v1/analyses/{analysis_id}/decisions", dependencies=[Depends(authorize)], status_code=202)
     def decide(analysis_id: str, body: Decision, key: str = Depends(idempotency_key)):
         status, response = service.decide(analysis_id, body.model_dump(mode="json"), key)
+        return JSONResponse(status_code=status, content=response)
+
+    @app.post("/v1/analyses/{analysis_id}/proposals/{proposal_id}/decisions", dependencies=[Depends(authorize)], status_code=202)
+    def decide_document(analysis_id: str, proposal_id: str, body: Decision, key: str = Depends(idempotency_key)):
+        status, response = service.decide_document(analysis_id, proposal_id, body.model_dump(mode="json"), key)
         return JSONResponse(status_code=status, content=response)
 
     # Swagger shows the same response schemas and bearer security as the App.
