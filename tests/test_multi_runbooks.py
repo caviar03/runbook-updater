@@ -101,6 +101,7 @@ def test_direct_docx_context_preserves_runbook_identity_and_nested_section_label
 
 def test_cli_indexes_all_selected_runbooks_before_invoking_the_graph(monkeypatch, tmp_path):
     import src.main as main
+    monkeypatch.setattr(main, "load_dotenv", lambda: None)
     folder = tmp_path / "test_data/input"; folder.mkdir(parents=True)
     paths = [doc(folder / name) for name in ("Orders.docx", "Payments.docx")]
     monkeypatch.chdir(tmp_path)

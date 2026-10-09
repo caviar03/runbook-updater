@@ -1,9 +1,9 @@
-The GitHub App API is implemented with durable SQLite state and direct DOCX input.
+The GitHub App API adapts the backend retrieval workflow with durable SQLite state.
 The App supplies the complete merged source snapshot using its existing App
 credentials; the HTTP backend does not need `GITHUB_TOKEN` or fetch GitHub itself.
 The CLI instructions below describe a separate legacy entry point.
 See [API.md](API.md) for configuration, endpoints, and restart behavior.
-Use `requirements-api.txt` to run this path without retrieval dependencies.
+Use `requirements-api.txt` for the API, parsing, embeddings, retrieval, and classifier dependencies.
 
 Local Development Setup
 
@@ -120,10 +120,16 @@ starting its workflow. Set `RUNBOOK_PATHS` to a JSON array to select different
 files, and `RUNBOOK_OUTPUT_DIR` for approved copies (default `test_data/output`).
 The CLI requires the full retrieval dependencies and a running Qdrant service.
 
-The HTTP API remains separate: `RUNBOOK_PATH` selects one local DOCX and the
-App supplies the merged code snapshot. It bypasses retrieval and writes approved
-copies under `.data/<analysis_id>/updated.docx`. See [API.md](API.md). Repository
-publication is not implemented yet.
+The HTTP API calls the same backend indexer, retrieval agents, workflow, and
+DOCX writer. `RUNBOOK_PATHS` selects documents; with no path settings, all
+`test_data/input/*.docx` files are used. `RUNBOOK_PATH` remains a single-file
+option. API retrieval uses persistent embedded Qdrant unless `QDRANT_URL` is set.
+Each analysis searches its own saved runbook snapshots and collection. The App
+only sends source code and document decisions; it never opens runbooks.
+Approve or deny each proposed document separately in GitHub. Saving waits until
+all documents are decided, then writes only approved copies under
+`.data/<analysis_id>/outputs/<original-name>.docx`. See [API.md](API.md).
+Repository publication is not implemented.
 
 6. Run the Application
 

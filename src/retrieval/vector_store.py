@@ -1,20 +1,28 @@
 from qdrant_client import QdrantClient, models
 
+from src.retrieval.runtime import current_scope
+
 QDRANT_URL = "http://localhost:6333"
 COLLECTION_NAME = "runbook_chunks"
 EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 
 
 def get_qdrant_client():
-    return QdrantClient(url=QDRANT_URL)
+    scope = current_scope()
+    return scope[0] if scope else QdrantClient(url=QDRANT_URL)
+
+
+def collection_name():
+    scope = current_scope()
+    return scope[1] if scope else COLLECTION_NAME
 
 
 def create_collection(client):
-    if client.collection_exists(COLLECTION_NAME):
+    if client.collection_exists(collection_name()):
         return
 
     client.create_collection(
-        collection_name=COLLECTION_NAME,
+        collection_name=collection_name(),
         vectors_config=models.VectorParams(
             size=client.get_embedding_size(EMBEDDING_MODEL),
             distance=models.Distance.COSINE,
@@ -30,7 +38,7 @@ def index_chunks(client, chunks):
 
     if sources:
         client.delete(
-            collection_name=COLLECTION_NAME,
+            collection_name=collection_name(),
             points_selector=models.FilterSelector(
                 filter=models.Filter(
                     must=[
@@ -44,7 +52,7 @@ def index_chunks(client, chunks):
         )
 
     client.upload_collection(
-        collection_name=COLLECTION_NAME,
+        collection_name=collection_name(),
 
         vectors=[
             models.Document(

@@ -48,6 +48,20 @@ def backend(monkeypatch, tmp_path):
     # Both full-content analyzers and proposal generation must bypass retrieval.
     for name in ("runbook_analyzer1", "runbook_analyzer2", "change_proposer"):
         monkeypatch.setattr(f"src.agents.{name}.retrieve_for_queries", Mock(side_effect=AssertionError("Retrieval is disabled")))
+    # Keep this suite as the persisted v1 job regression suite. New retrieval
+    # jobs are covered by test_retrieval_api.py with the real v2 adapter.
+    from src.api.pipeline import Pipeline, digest
+    from src.agents.implementor import read_runbook_text
+    from src.github.snapshot import code_from_snapshot
+    from src.graph.state import make_initial_state
+    def legacy_prepare(self, body, folder):
+        folder.mkdir(parents=True, exist_ok=True)
+        saved = folder / "source.docx"
+        saved.write_bytes(self.settings.runbook_path.read_bytes())
+        state = make_initial_state(code_from_snapshot(body["code_snapshot"]), saved, folder / "updated.docx")
+        state.update(review_only=True, runbook_text=read_runbook_text(str(saved),runbook_name=self.settings.runbook_path.name))
+        return {"state":state,"source_path":str(self.settings.runbook_path),"revision_sha256":digest(saved.read_bytes())}
+    monkeypatch.setattr(Pipeline,"prepare",legacy_prepare)
     return Service(settings), source, calls
 
 
@@ -63,7 +77,7 @@ def review(service):
 def test_http_endpoints_auth_validation_and_no_work_during_post(backend):
     service, _, calls = backend
     with TestClient(create_app(service.settings, service, start_worker=False)) as client:
-        assert client.get("/health").json()["retrieval"] == "disabled"
+        assert client.get("/health").json()["retrieval"] == "enabled"
         assert client.get("/v1/analyses/unknown").status_code == 401
         assert client.post("/v1/analyses", json=request()).status_code == 401
         assert client.get("/v1/analyses/unknown", headers=AUTH).status_code == 404

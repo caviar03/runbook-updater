@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Runbook Updater \u2014 GitHub Interface Contract",
-    "version": "1.3.0",
-    "description": "GitHub App supplies the merged source snapshot; backend analyzes local runbooks and applies separately approved edits."
+    "version": "1.4.0",
+    "description": "API adapter to the existing backend retrieval workflow; document-scoped decisions and local copies."
   },
   "servers": [
     {
@@ -116,6 +116,79 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Decision"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Decision accepted; backend work queued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionAccepted"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Decision accepted or original receipt replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionAccepted"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/v1/analyses/{analysis_id}/proposals/{proposal_id}/decisions": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AnalysisId"
+        }
+      ],
+      "post": {
+        "operationId": "decideDocument",
+        "summary": "Approve or deny one document; save approved copies only after every document is decided",
+        "description": "Approve/create accepts the reviewed bundle and starts asynchronous application. Deny rejects it. Acknowledge accepts a no-update result. Return 409 before side effects if any input/version is stale.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "name": "proposal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
           }
         ],
         "requestBody": {
@@ -424,6 +497,12 @@
             "type": "string",
             "minLength": 1,
             "description": "Matches the immutable merged commit submitted with the analysis request."
+          },
+          "decision_scope": {
+            "type": "string",
+            "enum": [
+              "document"
+            ]
           }
         },
         "allOf": [
@@ -575,6 +654,60 @@
             "items": {
               "$ref": "#/components/schemas/Change"
             }
+          },
+          "review_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "denied"
+            ]
+          },
+          "save_status": {
+            "type": "string",
+            "enum": [
+              "not_started",
+              "saving",
+              "saved",
+              "failed"
+            ]
+          },
+          "decision": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "action",
+              "actor"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "approve",
+                  "deny"
+                ]
+              },
+              "actor": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "result": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "output_path"
+            ],
+            "properties": {
+              "output_path": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
           }
         },
         "allOf": [

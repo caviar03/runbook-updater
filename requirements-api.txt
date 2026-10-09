@@ -1,4 +1,4 @@
-# Direct configured DOCX input; no Docling, embeddings, or vector database.
+# HTTP adapter uses the same retrieval dependencies as the backend workflow.
 langgraph>=1.2,<1.3
 langchain-openai>=1.6,<1.7
 pydantic>=2.9,<3
@@ -7,3 +7,10 @@ python-dotenv
 requests
 fastapi>=0.142,<0.143
 uvicorn>=0.54,<0.55
+
+docling
+qdrant-client[fastembed]
+transformers>=5.18,<6
+torch>=2.14,<3
+sentencepiece>=0.2,<0.3
+protobuf>=7,<8
